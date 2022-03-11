@@ -9,12 +9,31 @@ from yaml.parser import ParserError
 class CfgParser:
     def __init__(self, cfg_path):
         self.path = cfg_path
-
         self.files = []
-        self._parse()
-
         self.base = None
         self.versions = None
+
+    def __len__(self):
+        if self.base is None:
+            return 0
+        return len(self.versions) if self.versions else 1
+
+    def __getitem__(self, item):
+        return self.get_config(item)
+
+    def get_config(self, version=0):
+        if self.base is None:
+            self.parse()
+        if version >= len(self):
+            raise IndexError(f'Version index {version} out of range.')
+        if not self.versions:
+            cfg = self.base.copy()
+        else:
+            cfg = self.base.merge(self.versions[version])
+        return CfgParser.resolve_refs(cfg)
+
+    def parse(self):
+        self._parse()
         self._merge_files()
 
     def _parse(self):
@@ -42,24 +61,37 @@ class CfgParser:
     def resolve_refs(cfg_dict: CfgDict):
         investigated = set()
         resolved = {}
+
         def resolve(path, rootpath):
             abs_path = cfg_dict.abs_path(path, rootpath, check_exists=True)
             if abs_path in resolved:
                 return resolved[abs_path]
             if abs_path in investigated:
-                raise RuntimeError(f'Redundent definition of "{abs_path}" {cfg_dict.get_mark(abs_path)}.')
+                raise RuntimeError(f'Redundent definition of "{".".join(abs_path)}" {cfg_dict.get_mark(abs_path)}.')
             investigated.add(abs_path)
-            d = cfg_dict.get(abs_path)
+            d = cfg_dict[abs_path]
             if isinstance(d, CfgDict):
                 search_refs(abs_path)
             elif isinstance(d, str) and d.startswith('$'):
-                d = resolve(d[1:], abs_path)
+                try:
+                    d = resolve(d[1:], abs_path[:-1])
+                except KeyError:
+                    raise ParserError(f'Unkown reference to "{d}", {cfg_dict.get_mark(abs_path)}.')
             resolved[abs_path] = d
             investigated.remove(abs_path)
             return d
 
         def search_refs(path):
-            pass
+            r = cfg_dict[path]
+            for cursor in r.walk_cursor():
+                v = cursor.value
+                if isinstance(v, str) and v.startswith('$'):
+                    try:
+                        cursor.value = resolve(v[1:], '.'.join((path+cursor.path)[:-1]))
+                    except KeyError:
+                        raise ParserError(f'Unkown reference to "{v}", {cursor.mark}.')
+        search_refs(())
+        return cfg_dict
 
 
 class CfgFile:
@@ -90,7 +122,7 @@ class CfgFile:
                 finally:
                     loader.dispose()
             base = CfgDict.from_dict(yaml_docs[0], recursive=True, read_marks=True)
-            versions = [CfgDict.from_dict(_, recursive=True, read_marks=True ) for _ in yaml_docs[1:]]
+            versions = [CfgDict.from_dict(_, recursive=True, read_marks=True) for _ in yaml_docs[1:]]
             dirname = os.path.dirname(self.path)
             self.inherit = [CfgFile(os.path.join(dirname, _)) for _ in loader.inherit]
 

@@ -1,2 +1,2 @@
-# Steered Convolution Neural Network
+# Neural Network template repository
 
