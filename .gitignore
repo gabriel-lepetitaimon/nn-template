@@ -1,0 +1,11 @@
+.idea/
+.ipynb_checkpoints/
+lightning_logs/
+experiments_backup/
+mlruns/
+__pycache__/
+*/__pycache__/
+*.h5
+DATA/
+tmp/
+.directory
