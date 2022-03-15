@@ -2,7 +2,9 @@ __all__ = ['default_config', 'parse_config']
 
 import os.path as P
 import os
-from .config_dict import CfgDict
+from .cfg_dict import CfgDict
+from .cfg_parser import CfgParser, register_obj
+from .cfg_object import *
 
 
 ORION_CFG_PATH = P.join(P.dirname(P.abspath(__file__)), '../../../experimentations/src/config/orion_config.yaml')
@@ -118,3 +120,18 @@ def set_env_var(cfg):
             os.environ['TRIAL_NAME'] = trial['name']
         if 'cfg_path' in trial:
             os.environ['TRIAL_CFG_PATH'] = trial['cfg_path']
+
+
+class Cfg:
+    int = Int
+    float = Float
+    str = Str
+    oneOf = OneOf
+    bool = Bool
+    strMap = StrMap
+    obj = Obj
+
+    Parser = CfgParser
+    Obj = CfgObj
+
+    register_obj = register_obj

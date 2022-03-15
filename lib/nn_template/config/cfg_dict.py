@@ -101,6 +101,8 @@ class CfgDict(dict):
                         r.child_mark = v
                         continue
                 if is_dict(v) and recursive:
+                    if isinstance(v, CfgDict) and v.mark is not None:
+                        r.child_mark[str(k)] = v.mark
                     v = CfgDict.from_dict(v, True, read_marks=read_marks)
                 r[str(k)] = v
             return r
@@ -113,6 +115,9 @@ class CfgDict(dict):
 
     def to_dict(self):
         return recursive_dict_map(self, lambda k, v: v)
+
+    def __str__(self):
+        return self.to_yaml()
 
     def to_json(self):
         from json import dumps
@@ -240,16 +245,17 @@ class CfgDict(dict):
         return d
 
     def update(self, __m: Mapping[str, any], **kwargs: any) -> None:
-        kwargs.update(__m)
-        for k, v in kwargs.items():
+        __m.update(kwargs)
+
+        if isinstance(__m, CfgDict):
+            self.child_mark.update(__m.child_mark)
+        for k, v in __m.items():
             if is_dict(v) and not isinstance(v, CfgDict):
                 v = CfgDict.from_dict(v)
             if k in self and isinstance(self[k], CfgDict):
                 self[k].update(v)
             else:
                 self[k] = v
-        if isinstance(__m, CfgDict):
-            self.child_mark.update(__m.child_mark)
 
     def filter(self, condition, recursive=False):
         for k in list(self.keys()):

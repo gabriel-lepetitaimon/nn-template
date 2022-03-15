@@ -5,11 +5,54 @@ import numpy as np
 from collections import OrderedDict
 from copy import copy
 
-from steered_cnn.utils import AttributeDict
-from .cv2_parse import INTERPOLATIONS, BORDER_MODES
+from ..config import Cfg
 
-_augment_methods = {}
-_augment_by_type = {}
+INTERPOLATIONS = {
+    'linear': cv2.INTER_LINEAR,
+    'nearest': cv2.INTER_NEAREST,
+    'area': cv2.INTER_AREA,
+    'cubic': cv2.INTER_CUBIC,
+    'max': cv2.INTER_MAX,
+    'bits': cv2.INTER_BITS,
+}
+
+
+BORDER_MODES = {
+    'constant': cv2.BORDER_CONSTANT,
+    'replicate': cv2.BORDER_REPLICATE,
+    'wrap': cv2.BORDER_WRAP,
+    'reflect': cv2.BORDER_REFLECT,
+    'reflect101': cv2.BORDER_REFLECT101,
+}
+
+
+class CfgBorderMode(Cfg.Obj):
+    type = Cfg.strMap(BORDER_MODES, 'constant')
+    value = Cfg.float(0)
+
+
+class CfgRotationAugment(Cfg.Obj):
+    enabled = Cfg.bool(True)
+    angle = 0
+    interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
+    border_mode = Cfg.obj(CfgBorderMode, shortcut='type', default='constant')
+
+
+class CfgElasticAugment(Cfg.Obj):
+    enabled = Cfg.bool(True)
+    alpha = Cfg.float(10, min=0)
+    sigma = Cfg.float(20, min=0)
+    alpha_affine = Cfg.float(50, min=0)
+    approximate = Cfg.bool(False)
+    interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
+    border_mode = Cfg.obj(CfgBorderMode, shortcut='type', default='constant')
+
+
+@Cfg.register_obj('data-augmentation')
+class CfgDataAugmentation(Cfg.Obj):
+    flip: bool = Cfg.bool(False)
+    rotation: CfgRotationAugment = Cfg.obj(CfgRotationAugment, shortcut='enabled', default=False)
+    elastic: CfgElasticAugment = Cfg.obj(CfgElasticAugment, shortcut='enabled', default=False)
 
 
 def parse_data_augmentations(cfg: AttributeDict, rng=None):
@@ -22,6 +65,7 @@ def parse_data_augmentations(cfg: AttributeDict, rng=None):
     cfg = cfg['data-augmentation'].copy()
     cfg.update({'default': cfg.pop({'flip', 'rotation', 'elastic', 'gamma', 'brightness', 'hue', 'saturation'})})
     return {k: parse_data_augmentation_cfg(v, rng=rng_seed) for k, v in cfg.items()}
+
 
 
 def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
@@ -99,6 +143,14 @@ def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
         da.hsv(hue=hue, saturation=saturation)
 
     return da
+
+########################################################################################################################
+#                   ---  DATA AUGMENTATION  ---
+########################################################################################################################
+
+
+_augment_methods = {}
+_augment_by_type = {}
 
 
 def augment_method(augment_type=None):

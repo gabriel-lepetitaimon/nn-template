@@ -1,9 +1,24 @@
-from .config_dict import CfgDict
 import os
 from itertools import product
 from yaml import SafeLoader
 from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
+
+from .cfg_dict import CfgDict
+from .cfg_object import CfgObj
+
+
+_registered_cfg_object = {}
+
+
+def register_obj(path: str):
+    if path in _registered_cfg_object:
+        raise ValueError(f'A configuration object is already registered at path "{path}"')
+
+    def register(cfg_obj: CfgObj):
+        _registered_cfg_object[path] = cfg_obj
+        return cfg_obj
+    return register
 
 
 class CfgParser:
@@ -30,7 +45,10 @@ class CfgParser:
             cfg = self.base.copy()
         else:
             cfg = self.base.merge(self.versions[version])
-        return CfgParser.resolve_refs(cfg)
+
+        CfgParser.resolve_refs(cfg, inplace=True)
+        CfgParser.resolve_registered_cfg(cfg, inplace=True)
+        return cfg
 
     def parse(self):
         self._parse()
@@ -58,7 +76,10 @@ class CfgParser:
         self.versions = versions_product(versions)
 
     @staticmethod
-    def resolve_refs(cfg_dict: CfgDict):
+    def resolve_refs(cfg_dict: CfgDict, inplace=False):
+        if not inplace:
+            cfg_dict = cfg_dict.copy()
+
         investigated = set()
         resolved = {}
 
@@ -67,7 +88,7 @@ class CfgParser:
             if abs_path in resolved:
                 return resolved[abs_path]
             if abs_path in investigated:
-                raise RuntimeError(f'Redundent definition of "{".".join(abs_path)}" {cfg_dict.get_mark(abs_path)}.')
+                raise ParseError(f'Redundent definition of "{abs_path}"', cfg_dict.get_mark(abs_path))
             investigated.add(abs_path)
             d = cfg_dict[abs_path]
             if isinstance(d, CfgDict):
@@ -76,7 +97,7 @@ class CfgParser:
                 try:
                     d = resolve(d[1:], abs_path[:-1])
                 except KeyError:
-                    raise ParserError(f'Unkown reference to "{d}", {cfg_dict.get_mark(abs_path)}.')
+                    raise ParseError(f'Unkown reference to "{d}"', cfg_dict.get_mark(abs_path))
             resolved[abs_path] = d
             investigated.remove(abs_path)
             return d
@@ -89,8 +110,17 @@ class CfgParser:
                     try:
                         cursor.value = resolve(v[1:], '.'.join((path+cursor.path)[:-1]))
                     except KeyError:
-                        raise ParserError(f'Unkown reference to "{v}", {cursor.mark}.')
+                        raise ParserError(f'Unkown reference to "{v}"', cursor.mark)
         search_refs(())
+        return cfg_dict
+
+    @staticmethod
+    def resolve_registered_cfg(cfg_dict: CfgDict, inplace=False):
+        if not inplace:
+            cfg_dict = cfg_dict.copy()
+        for path, cfg_obj_class in _registered_cfg_object.items():
+            if path in cfg_dict:
+                cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path])
         return cfg_dict
 
 
@@ -223,7 +253,6 @@ class CfgYamlLoader(SafeLoader):
         return value
 
 
-
 class Mark:
     def __init__(self, line:int, col:int, file:CfgFile|str):
         self.line = line
@@ -243,3 +272,10 @@ class Mark:
     @property
     def filepath(self):
         return self.file.path
+
+
+class ParseError(Exception):
+    def __init__(self, msg, mark=None):
+        super(ParseError, self).__init__(msg+(', '+str(mark) if mark is not None else ''))
+        self.mark = mark
+
