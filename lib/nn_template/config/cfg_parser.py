@@ -11,7 +11,7 @@ from .cfg_object import CfgObj
 _registered_cfg_object = {}
 
 
-def register_obj(path: str):
+def register_obj(path: str, ):
     if path in _registered_cfg_object:
         raise ValueError(f'A configuration object is already registered at path "{path}"')
 
@@ -59,7 +59,7 @@ class CfgParser:
         self.files = [f]
         dependencies = list(f.inherit)
         while dependencies:
-            f = dependencies.pop(0).parse()
+            f = dependencies.pop(0).interpret()
             self.files += [f]
             for d in f.inherit:
                 if d not in self.files and d not in dependencies:

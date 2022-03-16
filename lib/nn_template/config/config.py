@@ -130,8 +130,11 @@ class Cfg:
     bool = Bool
     strMap = StrMap
     obj = Obj
+    shape = Shape
 
     Parser = CfgParser
     Obj = CfgObj
+    Attr = CfgAttr
+    InvalidAttr = InvalidCfgAttr
 
     register_obj = register_obj

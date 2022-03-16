@@ -6,6 +6,8 @@ from collections import OrderedDict
 from copy import copy
 
 from ..config import Cfg
+from .random_dist import RandomDistribution as RD
+from .random_dist import RandDistAttr
 
 INTERPOLATIONS = {
     'linear': cv2.INTER_LINEAR,
@@ -33,26 +35,31 @@ class CfgBorderMode(Cfg.Obj):
 
 class CfgRotationAugment(Cfg.Obj):
     enabled = Cfg.bool(True)
-    angle = 0
+    angle: RD = RandDistAttr([-180, 180], symetric=True)
     interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
-    border_mode = Cfg.obj(CfgBorderMode, shortcut='type', default='constant')
+    border_mode: CfgBorderMode = Cfg.obj(shortcut='type', default='constant')
 
 
 class CfgElasticAugment(Cfg.Obj):
-    enabled = Cfg.bool(True)
-    alpha = Cfg.float(10, min=0)
-    sigma = Cfg.float(20, min=0)
-    alpha_affine = Cfg.float(50, min=0)
-    approximate = Cfg.bool(False)
+    enabled: bool = True
+    alpha: float = 10
+    sigma: float = 20
+    alpha_affine: float = 50
+    approximate: bool = False
     interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
-    border_mode = Cfg.obj(CfgBorderMode, shortcut='type', default='constant')
+    border_mode: CfgBorderMode = Cfg.obj(shortcut='type', default='constant')
 
 
 @Cfg.register_obj('data-augmentation')
 class CfgDataAugmentation(Cfg.Obj):
     flip: bool = Cfg.bool(False)
+    patch: tuple[int, int] = Cfg.shape((0, 0), dim=2)
     rotation: CfgRotationAugment = Cfg.obj(CfgRotationAugment, shortcut='enabled', default=False)
     elastic: CfgElasticAugment = Cfg.obj(CfgElasticAugment, shortcut='enabled', default=False)
+    gamma: RD = RandDistAttr([-0.1, 0.1], symetric=True)
+    brightness: RD = RandDistAttr([-0.1, 0.1], symetric=True)
+    hue: RD = RandDistAttr([-20, 20], symetric=True)
+    saturation: RD = RandDistAttr([-20, 20], symetric=True)
 
 
 def parse_data_augmentations(cfg: AttributeDict, rng=None):
@@ -332,8 +339,8 @@ class DataAugment:
 
     @augment_method('geometric')
     def flip(self, p_horizontal=0.5, p_vertical=0.5, value_type=None):
-        h_flip = _RD.binary(p_horizontal)
-        v_flip = _RD.binary(p_vertical)
+        h_flip = RD.binary(p_horizontal)
+        v_flip = RD.binary(p_vertical)
 
         post_flip = None
         if value_type == 'angle':
@@ -366,7 +373,7 @@ class DataAugment:
 
     @augment_method('geometric')
     def rot90(self, value_type=None):
-        rot90 = _RD.discrete_uniform(4)
+        rot90 = RD.discrete_uniform(4)
 
         post_rot90 = None
         if value_type == 'angle':
@@ -394,7 +401,7 @@ class DataAugment:
     def rotate(self, angle=(-180, +180), value_type=None,
                interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_CONSTANT, border_value=0):
         import albumentations.augmentations.geometric.functional as AF
-        angle = _RD.auto(angle, symetric=True)
+        angle = RD.auto(angle, symetric=True)
 
         pre_rot = None
         if value_type == 'angle':
@@ -428,17 +435,17 @@ class DataAugment:
             return AF.elastic_transform(x, alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
                                         interpolation=interpolation, border_mode=border_mode, value=border_value,
                                         random_state=random_state)
-        return augment, _RD.integers(1e8)
+        return augment, RD.integers(1e8)
 
     @augment_method('color')
     def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
-        brightness = _RD.constant(0) if brightness is None else _RD.auto(brightness, symetric=True)
-        contrast = _RD.constant(0) if contrast is None else _RD.auto(contrast, symetric=True)
-        gamma = _RD.gamma(0) if gamma is None else _RD.auto(gamma, symetric=True)
+        brightness = RD.constant(0) if brightness is None else RD.auto(brightness, symetric=True)
+        contrast = RD.constant(0) if contrast is None else RD.auto(contrast, symetric=True)
+        gamma = RD.gamma(0) if gamma is None else RD.auto(gamma, symetric=True)
 
-        r = _RD.constant(0) if r is None else _RD.auto(r, symetric=True)
-        g = _RD.constant(0) if g is None else _RD.auto(g, symetric=True)
-        b = _RD.constant(0) if b is None else _RD.auto(b, symetric=True)
+        r = RD.constant(0) if r is None else RD.auto(r, symetric=True)
+        g = RD.constant(0) if g is None else RD.auto(g, symetric=True)
+        b = RD.constant(0) if b is None else RD.auto(b, symetric=True)
 
         def augment(x, brightness, contrast, gamma, r, g, b):
             x = (x+brightness)*(contrast+1.).clip(0)**(gamma+1.)
@@ -461,9 +468,9 @@ class DataAugment:
 
     @augment_method('color')
     def hsv(self, hue=None, saturation=None, value=None):
-        hue = _RD.constant(0) if hue is not None else _RD.auto(hue, symetric=True)
-        saturation = _RD.constant(0) if saturation is not None else _RD.auto(saturation, symetric=True)
-        value = _RD.constant(0) if value is not None else _RD.auto(value, symetric=True)
+        hue = RD.constant(0) if hue is not None else RD.auto(hue, symetric=True)
+        saturation = RD.constant(0) if saturation is not None else RD.auto(saturation, symetric=True)
+        value = RD(0) if value is not None else RD.auto(value, symetric=True)
 
         a_min = np.array([0, 0, 0], np.uint8)
         a_max = np.array([179, 255, 255], np.uint8)
@@ -481,125 +488,6 @@ class DataAugment:
 
     def saturation(self, saturation=(-20, 20)):
         return self.hsv(saturation=saturation)
-
-
-########################################################################################################################
-class RandomDistribution:
-    def __init__(self, random_f, name, **kwargs):
-        self._f = random_f
-        self._name = name
-        self._kwargs = kwargs
-
-    def __call__(self, rng, shape=None):
-        return self._f(rng=rng, shape=shape, **self._kwargs)
-    
-    def __repr__(self):
-        return f"RandomDistribution.{self._name}(**{self._kwargs})"
-
-    def __getattr__(self, item):
-        if item in self._kwargs:
-            return self._kwargs[item]
-
-    def __setattr__(self, key, value):
-        if not key.startswith('_') and key in self._kwargs:
-            self._kwargs[key] = value
-        else:
-            super(RandomDistribution, self).__setattr__(key, value)
-        
-    def __eq__(self, other):
-        return self._name == other._name and self._kwargs==other._kwargs
-    
-    def __neq__(self, other):
-        return self._name != other._name or self._kwargs!=other._kwargs
-
-    @staticmethod
-    def auto(info, symetric=False):
-        """
-        Generate a RandomDistribution according to the value of an argument
-        :rtype: RandomDistribution
-        """
-        if isinstance(info, str):
-            if '±' in info:
-                mean, std = info.split('±')
-                return RandomDistribution.normal(float(mean), float(std))
-        elif isinstance(info, (tuple, list)):
-            if len(info) == 2:
-                return RandomDistribution.uniform(*info)
-            elif len(info) == 1:
-                return RandomDistribution.uniform(low=-info[0], high=+info[0])
-        elif isinstance(info, (float, int)):
-            if symetric:
-                return RandomDistribution.uniform(low=-info, high=info)
-            else:
-                return RandomDistribution.uniform(high=info)
-        elif isinstance(info, RandomDistribution):
-            return info
-        raise ValueError('Not interpretable random distribution: %s.' % repr(info))
-
-    @staticmethod
-    def discrete_uniform(values):
-        if isinstance(values, (list, tuple, set, np.ndarray)):
-            values = np.array(values)
-            def f(rng: np.random.RandomState, shape, distribution):
-                return distribution[rng.randint(low=0, high=len(distribution), size=shape)]
-            return RandomDistribution(f, distribution=values)
-        elif isinstance(values, int):
-            def f(rng: np.random.RandomState, shape, distribution):
-                return rng.randint(low=0, high=distribution, size=shape)
-
-            return RandomDistribution(f, 'discrete_uniform', distribution=values)
-
-    @staticmethod
-    def uniform(high=1, low=0):
-        if high < low:
-            low, high = high, low
-
-        def f(rng: np.random.RandomState, shape, low, high):
-            return rng.uniform(low=low, high=high, size=shape)
-        return RandomDistribution(f, 'uniform', low=low, high=high)
-
-    @staticmethod
-    def normal(mean=0, std=1):
-        def f(rng: np.random.RandomState, shape, mean, std):
-            return rng.normal(loc=mean, scale=std, size=shape)
-        return RandomDistribution(f, 'normal', mean=mean, std=std)
-
-    @staticmethod
-    def truncated_normal(mean=0, std=1, truncate_high=1, truncate_low=None):
-        if truncate_low is None:
-            truncate_low = -truncate_high
-
-        def f(rng, shape, mean, std, truncate_low, truncate_high):
-            return np.clip(rng.normal(loc=mean, scale=std, size=shape), a_min=truncate_low, a_max=truncate_high)
-        return RandomDistribution(f, 'truncated_normal', mean=mean, std=std, truncate_high=truncate_high, truncate_low=truncate_low)
-
-    @staticmethod
-    def binary(p=0.5):
-        def f(rng: np.random.RandomState, shape, p):
-            return rng.binomial(n=1, p=p, size=shape) > 0
-        return RandomDistribution(f, 'binary', p=p)
-
-    @staticmethod
-    def constant(c=0):
-        def f(rng, shape, c):
-            return np.ones(shape=shape, dtype=type(c))*c
-        return RandomDistribution(f, 'constant', c=c)
-
-    @staticmethod
-    def custom(f_dist, **kwargs):
-        def f(rng, shape, **kwargs):
-            return f_dist(x=rng.uniform(0, 1, size=shape), **kwargs)
-
-        return RandomDistribution(f, 'custom: '+f_dist.__name__, **kwargs)
-
-    @staticmethod
-    def integers(low, high=None, dtype='i'):
-        def f(rng, shape, low, high, dtype):
-            return rng.integers(low, high=high, size=shape, dtype=dtype)
-        return RandomDistribution(f, 'randint', low=low, high=high, dtype=dtype)
-
-
-_RD = RandomDistribution
 
 
 ########################################################################################################################

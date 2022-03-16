@@ -9,7 +9,44 @@ class InvalidCfgAttr(Exception):
         super(InvalidCfgAttr, self).__init__(msg)
 
 
-class CfgObj(CfgDict):
+class MetaCfgObj:
+    def __new__(cls, *args, **kwargs):
+        super(MetaCfgObj, cls).__new__(*args, **kwargs)
+        if not hasattr(cls, '__attr__'):
+            cls.__attr__ = {}
+
+        for attr_name, attr_type in cls.__annotations__.items():
+            attr_value = getattr(cls, attr_name, '__undefined__')
+            default = '__undefined__' if isinstance(attr_value, CfgAttr) is None else attr_value
+            attr_type = _type2attr(attr_type, default=default)
+
+            if attr_value == '__undefined__':
+                attr = attr_type
+            elif not isinstance(attr_value, type(attr_type)):
+                raise InvalidCfgAttr('Incoherent attribute and type hint.')
+            elif isinstance(attr_value, Obj):
+                if attr_value.type is not None:
+                    if not issubclass(attr_type.type, attr_value.type):
+                        raise InvalidCfgAttr('Incoherent attribute and type hint.')
+                    attr = attr_value
+                else:
+                    attr = Obj(type=attr_type.type, shortcut=attr_value.shortcut, default=attr_value.default)
+                    attr.name = attr_name
+            elif isinstance(attr_value, OneOf):
+                if attr_value.values is not None:
+                    raise InvalidCfgAttr('Incoherent attribute and type hint.')
+                else:
+                    attr = OneOf(*attr_type.values, default=attr_value.default)
+                    attr.name = attr_name
+            else:
+                attr = attr_value
+            cls.__attr__[attr_name] = attr
+
+    def __contains__(cls, item):
+        return item in cls.__attr__
+
+
+class CfgObj(CfgDict, metaclass=MetaCfgObj):
     __attr__ = {}
 
     def __init__(self):
@@ -29,7 +66,7 @@ class CfgObj(CfgDict):
                 except KeyError:
                     mark = None
                 raise ParseError(str(e), mark) from None
-            if isinstance(attr_value, CfgDict):
+            if isinstance(attr_value, CfgDict) and isinstance(value, CfgDict):
                 value = attr_value
             self._attr_values[attr_name] = attr_value
         super(CfgObj, self).__setitem__(key, value)
@@ -41,30 +78,12 @@ class CfgObj(CfgDict):
         return r
 
 
-class MetaCfgAttr:
-    def __new__(cls, *args, **kwargs):
-        super(MetaCfgAttr, cls).__new__(*args, **kwargs)
-        for attr_name, attr_type in cls.__annotations__.items():
-            attr_value = getattr(cls, attr_name)
-            if isinstance(attr_type, Union):
-                pass
-            else:
-                for src_type, dest_type in _TYPED_ATTR.items():
-                    if issubclass(attr_type, src_type):
-
-                        break
-
-
-    def __contains__(cls, item):
-        return item in cls.__attr__
-
-
-class CfgAttr(metaclass=MetaCfgAttr):
-    def __init__(self, default_value='__undefined__'):
+class CfgAttr:
+    def __init__(self, default='__undefined__'):
         self.name = ""
-        if default_value is not None and default_value != '__undefined__':
-            default_value = self.check_value(default_value)
-        self.default = default_value
+        if default is not None and default != '__undefined__':
+            default = self.check_value(default)
+        self.default = default
 
     def __set_name__(self, owner, name):
         self.name = name
@@ -98,14 +117,19 @@ class Int(CfgAttr):
         self.min = min
         self.max = max
 
+    @staticmethod
+    def interpret(value) -> int:
+        if isinstance(value, str):
+            if value.endswith(tuple('TGMk')):
+                value = float(value[:-1])*{
+                    'T': 1e12, 'G': 1e9, 'M': 1e6, 'k': 1e3
+                }[value[-1]]
+        return int(value)
+
     def check_value(self, value):
+        value = super(Int, self).check_value(value)
         try:
-            if isinstance(value, str):
-                if value.endswith(tuple('TGMk')):
-                    value = float(value[:-1])*{
-                        'T': 1e12, 'G': 1e9, 'M': 1e6, 'k': 1e3
-                    }[value[-1]]
-            value = int(value)
+            value = Int.interpret(value)
         except TypeError:
             raise InvalidCfgAttr(f"{value} is not a valid integer for attribute {self.name}")
         if self.min is not None and self.min > value:
@@ -114,7 +138,26 @@ class Int(CfgAttr):
         if self.max is not None and self.max < value:
             raise InvalidCfgAttr(f"Provided value: {value}, exceed the maximum value {self.max} "
                                  f"for attribute {self.name}")
-        return super(Int, self).check_value(value)
+        return value
+
+
+class Shape(CfgAttr):
+    def __init__(self, default='__undefined__', dim=None):
+        super(Shape, self).__init__(default)
+        self.dim = dim
+
+    def check_value(self, value):
+        value = super(Shape, self).check_value(value)
+        try:
+            if not isinstance(value, (tuple, list)):
+                value = (value,)
+                if self.dim is not None:
+                    value = value*self.dim
+            value = tuple(Int.interpret(_) for _ in value)
+        except Exception:
+            raise InvalidCfgAttr(f"{value} is not a valid integer for attribute {self.name}")
+
+        return value
 
 
 class Float(CfgAttr):
@@ -123,19 +166,24 @@ class Float(CfgAttr):
         self.min = min
         self.max = max
 
+    @staticmethod
+    def interpret(value) -> float:
+        if isinstance(value, str):
+            value = value.strip()
+            if value.endswith('%'):
+                value = float(value[:-1])/100
+            elif value.endswith('‰'):
+                value = float(value[:-1])/100
+            elif value.endswith(tuple('TGMkmµn')):
+                value = float(value[:-1])*{
+                    'T': 1e12, 'G': 1e9, 'M': 1e6, 'k': 1e3, 'm': 1e-3, 'µ': 1e-6, 'n': 1e-9
+                }[value[-1]]
+        return float(value)
+
     def check_value(self, value):
+        value = super(Float, self).check_value(value)
         try:
-            if isinstance(value, str):
-                value = value.strip()
-                if value.endswith('%'):
-                    value = float(value[:-1])/100
-                elif value.endswith('‰'):
-                    value = float(value[:-1])/100
-                elif value.endswith(tuple('TGMkmµn')):
-                    value = float(value[:-1])*{
-                        'T': 1e12, 'G': 1e9, 'M': 1e6, 'k': 1e3, 'm': 1e-3, 'µ': 1e-6, 'n': 1e-9
-                    }[value[-1]]
-            value = float(value)
+            value = Float.interpret(value)
         except TypeError:
             raise InvalidCfgAttr(f"{value} is not a valid float for attribute {self.name}")
 
@@ -145,37 +193,56 @@ class Float(CfgAttr):
         if self.max is not None and self.max < value:
             raise InvalidCfgAttr(f"Provided value: {value:.4e}, exceed the maximum value {self.max} "
                                  f"for attribute {self.name}")
-        return super(Float, self).check_value(value)
-
+        return value
 
 class Str(CfgAttr):
     def check_value(self, value):
+        value = super(Str, self).check_value(value)
         try:
-            return super(Str, self).check_value(str(value))
+            return str(value)
         except TypeError:
             raise InvalidCfgAttr(f"{value} is not a valid string for attribute {self.name}")
 
 
 class Bool(CfgAttr):
     def check_value(self, value):
+        value = super(Bool, self).check_value(value)
         try:
-            return super(Bool, self).check_value(bool(value))
+            return bool(value)
         except TypeError:
             raise InvalidCfgAttr(f"{value} is not a valid boolean for attribute {self.name}")
 
 
 class OneOf(CfgAttr):
     def __init__(self, *values, default='__undefined__'):
-        super(OneOf, self).__init__(default)
-        self.values = values
+        self.values = []
+        if values:
+            for v in values:
+                if isinstance(v, type):
+                    self.values += [_type2attr(v)]
+                else:
+                    self.values += [v]
+            super(OneOf, self).__init__(default)
+        else:
+            super(OneOf, self).__init__()
+            self.values = None
+            self.default = default
 
     def check_value(self, value):
+        value = super(OneOf, self).check_value(value)
         for v in self.values:
-            if isinstance(v, type):
-
-        if value not in self.values:
+            if isinstance(v, CfgAttr):
+                try:
+                    value = v.check_value(value)
+                except InvalidCfgAttr:
+                    pass
+                else:
+                    break
+            elif value == v:
+                break
+        else:
             raise InvalidCfgAttr(f"{value} is invalid for attribute {self.name} (should be one of {self.values})")
-        return super(OneOf, self).check_value(value)
+        return value
 
 
 class StrMap(CfgAttr):
@@ -193,15 +260,21 @@ class StrMap(CfgAttr):
 
 
 class Obj(CfgAttr):
-    def __init__(self, type, shortcut=None, default='__default__'):
-        if default == '__default__':
-            default = type()
-        self.type = type
-        if shortcut is not None and (not isinstance(shortcut, str) or shortcut not in type):
-                raise ValueError(f'Invalid shortcut name: {shortcut}. \n'
-                                 f'(Valid shortcut are: {list(type.__attr__.keys())}).')
-        self.shortcut = shortcut
-        super(Obj, self).__init__(default)
+    def __init__(self, type=None, shortcut=None, default='__default__'):
+        if type is not None:
+            if default == '__default__':
+                default = type()
+            self.type = type
+            if shortcut is not None and (not isinstance(shortcut, str) or shortcut not in type):
+                    raise ValueError(f'Invalid shortcut name: {shortcut}. \n'
+                                     f'(Valid shortcut are: {list(type.__attr__.keys())}).')
+            self.shortcut = shortcut
+            super(Obj, self).__init__(default)
+        else:
+            super(Obj, self).__init__()
+            self.default = default
+            self.shortcut = shortcut
+            self.type = None
 
     def check_value(self, value):
         if not isinstance(value, Mapping):
@@ -218,10 +291,19 @@ class Any(CfgAttr):
     pass
 
 
-_TYPED_ATTR = {
-    int: Int,
-    float: Float,
-    bool: Bool,
-    str: Str,
-    CfgObj: Obj
-}
+def _type2attr(type, default='__undefined__'):
+    if issubclass(type, CfgAttr):
+        return type(default=default)
+    elif issubclass(type, CfgObj):
+        return Obj(type=type, default=default)
+    elif isinstance(type, Union):
+        return OneOf(type.__args__, default=default)
+    try:
+        return {
+            int: Int(default=default),
+            float: Float(default=default),
+            bool: Bool(default=default),
+            str: Str(default=default),
+        }[type]
+    except KeyError:
+        return Any(default=default)
