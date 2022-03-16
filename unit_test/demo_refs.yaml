@@ -1,0 +1,13 @@
+references:
+    absolute-ref1: $foo
+    absolute-ref2: $interesting.stuff
+    relative ref1: $..foo
+    relative ref2: $.absolute-ref2.elem2
+
+interesting:
+    word: 'cool'
+    stuff:
+        elem1: 'FOO 1'
+        elem2: 'FOO 2'
+
+foo: 'foo value'

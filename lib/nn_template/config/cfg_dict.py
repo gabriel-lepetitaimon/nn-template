@@ -46,6 +46,10 @@ class CursorCfgDict:
         self.direction = 'continue'
 
     @property
+    def parent(self):
+        return self._cfg_dict[self.path[:-1]]
+
+    @property
     def value(self):
         return self._cfg_dict[self.path]
 
@@ -81,7 +85,7 @@ class CursorCfgDict:
 
 class CfgDict(dict):
     @staticmethod
-    def from_dict(d, recursive=False, read_marks=False):
+    def from_dict(d, recursive=False, read_marks=False, parent=None):
         if isinstance(d, list) and all(isinstance(_, dict) and len(_)==1 for _ in d):
             l = d
             d = {}
@@ -91,7 +95,7 @@ class CfgDict(dict):
         if isinstance(d, CfgDict):
             return d
         elif isinstance(d, dict):
-            r = CfgDict()
+            r = CfgDict(parent=parent)
             for k, v in d.items():
                 if read_marks:
                     if k == '__mark__':
@@ -103,21 +107,70 @@ class CfgDict(dict):
                 if is_dict(v) and recursive:
                     if isinstance(v, CfgDict) and v.mark is not None:
                         r.child_mark[str(k)] = v.mark
-                    v = CfgDict.from_dict(v, True, read_marks=read_marks)
+                    v = CfgDict.from_dict(v, recursive=True, read_marks=read_marks, parent=r)
                 r[str(k)] = v
             return r
         return d
 
-    def __init__(self):
+    def __init__(self, parent=None):
         super(CfgDict, self).__init__()
         self.mark = None
         self.child_mark = {}
+
+        import weakref
+        self._parent = None if parent is None else weakref.ref(parent)
+        self._name = None
+
+    @property
+    def parent(self):
+        return None if self._parent is None else self._parent()
+
+    @property
+    def name(self):
+        if self._name:
+            return self._name
+        parent = self.parent
+        if parent is None:
+            return None
+        for k, v in self.parent.items():
+            if v is self:
+                self._name = k
+                return k
+        else:
+            return None
+
+    def roots(self, max_level=None):
+        roots = []
+        r = self
+        i=0
+        while r.parent is not None and (max_level is None or i<max_level):
+            r = r.parent
+            roots += [r]
+            i += 1
+        return roots
+
+    def root(self, max_level=None):
+        roots = self.roots(max_level=max_level)
+        return roots[-1] if roots else self
+
+    def path(self):
+        return tuple(_.name for _ in reversed(self.roots()))
+
+    @property
+    def full_name(self):
+        return None if self._parent is None else '.'.join(self.path()+(self.name,))
 
     def to_dict(self):
         return recursive_dict_map(self, lambda k, v: v)
 
     def __str__(self):
-        return self.to_yaml()
+        s = ''
+        if self.name:
+            s = f'CfgDict[{self.name}]:\n'
+        return s+self.to_yaml()
+
+    def __repr__(self):
+        return 'CfgDict()'
 
     def to_json(self):
         from json import dumps
@@ -127,33 +180,31 @@ class CfgDict(dict):
         import yaml
         return yaml.dump(self.to_dict(), stream=file, default_flow_style=False)
 
-    def abs_path(self, path, root=None, check_exists=False):
-        if not path.startswith('.'):
-            root = None
-        else:
-            path = path[1:]
-
-        path = [_.strip() for _ in path.split('.')]
-        if not root:
-            root = ""
-        else:
-            if isinstance(root, str):
-                root = root.split('.')
-            path = [_.strip() for _ in root] + path
+    def abs_path(self, rel_path, root=None, check_exists=False):
+        path = tuple(_.strip() for _ in rel_path.split('.'))
+        if root is None:
+            root = self.root()
+        if root is not self:
+            roots = self.roots()
+            try:
+                id_root = roots.index(root)
+            except ValueError:
+                raise ValueError(f'"{root.full_name}" is not a parent of "{self.full_name}"') from None
+            path = tuple(reversed(roots[:id_root]))+(self.name,)+path
 
         abs_path = []
         for p in path:
             if p:
                 abs_path += [p]
             elif len(abs_path):
-                del abs_path[-1]
+                abs_path.pop()
             else:
-                raise ValueError(f'Impossible to reach "{path}" from "{root}":\n'
+                raise KeyError(f'Impossible to reach "{rel_path}" from "{self.full_name}":\n'
                                  f'Too many up in the hierarchy.')
         abs_path = tuple(abs_path)
 
         if check_exists:
-            r = self
+            r = root
             for i, p in enumerate(abs_path):
                 try:
                     r = r[p]
@@ -175,7 +226,7 @@ class CfgDict(dict):
             raise TypeError('Invalid CfgDict key: %s.' % repr(key))
         if isinstance(value, dict):
             try:
-                value = CfgDict.from_dict(value)
+                value = CfgDict.from_dict(value, recursive=True, parent=self)
             except:
                 pass
         if len(key) == 1:
@@ -251,7 +302,7 @@ class CfgDict(dict):
             self.child_mark.update(__m.child_mark)
         for k, v in __m.items():
             if is_dict(v) and not isinstance(v, CfgDict):
-                v = CfgDict.from_dict(v)
+                v = CfgDict.from_dict(v, recursive=True, parent=self)
             if k in self and isinstance(self[k], CfgDict):
                 self[k].update(v)
             else:

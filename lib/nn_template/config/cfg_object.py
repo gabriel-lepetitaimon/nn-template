@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from types import Union
+from types import UnionType
 
 from .cfg_dict import CfgDict
 
@@ -9,14 +9,21 @@ class InvalidCfgAttr(Exception):
         super(InvalidCfgAttr, self).__init__(msg)
 
 
-class MetaCfgObj:
-    def __new__(cls, *args, **kwargs):
-        super(MetaCfgObj, cls).__new__(*args, **kwargs)
-        if not hasattr(cls, '__attr__'):
-            cls.__attr__ = {}
+class MetaCfgObj(type):
+    def __new__(mcs, name, bases, clsdict):
+        # Create class attribute: __attr__ in CfgObj and inherited classes
+        if '__attr__' not in clsdict:
+            clsdict['__attr__'] = {}
+        # Populate __attr__ with attributes of inherited classes if relevant
+        for base in bases:
+            try:
+                clsdict['__attr__'].update(base.__attr__)
+            except AttributeError:
+                pass
 
-        for attr_name, attr_type in cls.__annotations__.items():
-            attr_value = getattr(cls, attr_name, '__undefined__')
+        # Adds class attribute typed by python annotation as CfgAttr
+        for attr_name, attr_type in clsdict.get('__annotations__', {}).items():
+            attr_value = clsdict.get(attr_name, '__undefined__')
             default = '__undefined__' if isinstance(attr_value, CfgAttr) is None else attr_value
             attr_type = _type2attr(attr_type, default=default)
 
@@ -40,7 +47,9 @@ class MetaCfgObj:
                     attr.name = attr_name
             else:
                 attr = attr_value
-            cls.__attr__[attr_name] = attr
+            clsdict['__attr__'][attr_name] = attr
+
+        return type.__new__(mcs, name, bases, clsdict)
 
     def __contains__(cls, item):
         return item in cls.__attr__
@@ -296,7 +305,7 @@ def _type2attr(type, default='__undefined__'):
         return type(default=default)
     elif issubclass(type, CfgObj):
         return Obj(type=type, default=default)
-    elif isinstance(type, Union):
+    elif isinstance(type, UnionType):
         return OneOf(type.__args__, default=default)
     try:
         return {

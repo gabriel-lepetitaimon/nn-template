@@ -1,0 +1,116 @@
+experiment:
+    name: ""
+    exp: ""
+    (sub): ""
+    (id): auto
+    (tags):
+        ...
+
+
+###########################################################
+#                    ---   TASK   ---                    #
+###########################################################
+task:
+    type: img-seg
+    optimize: max(val-acc) ... # (eval?)
+    n-classes: binary
+
+
+###########################################################
+#                    ---   MODEL   ---                    #
+###########################################################
+model:
+    architecture: 'unet'
+    backbone: 'resnet'
+    pretrained: True
+    batchnorm: True
+
+
+###########################################################
+#                   ---   TRAINING   ---                  #
+###########################################################
+training:
+    loss:
+        type*: cross-entropy #(eval?)
+        (class-weight): False
+        (pixel-weight): False
+        (smooth-label): False
+
+    optimizer:
+        type*: Adam
+        (weight_decay): 0
+        (beta): 0.9       # coefficients used for computing running averages of gradient
+        (beta_sqr): 0.999 # and its square
+        (amsgrad): True
+
+        lr:
+            initial*: 1e-3
+            (decay): #default: False
+                (factor): 0 #  is disabled
+                (monitor): $task.optimize
+                (patience): ? # parse 1epoch 100iteration
+                (min-delta): ?
+
+    minibatch: 8
+    drop-out: 0
+    max-epoch: 30
+    seed: 1234
+
+
+###########################################################
+#                   ---   DATASETS   ---                  #
+###########################################################
+datasets:
+    fields:
+        x: x
+        y: "{{y}} > 1"
+        mask: "{{y}} > 0"
+
+
+    train:
+        type: ImageFolders
+        paths:
+            x: '/PATH/train/raw/{{name}}.png'
+            y: '/PATH//train/gt/{{name}}.png'
+        augment: True
+
+    validate:
+        type: ImageFolders
+        paths:
+            x: '/PATH/val/raw/{{name}}.png'
+            y: '/PATH//val/gt/{{name}}.png'
+
+    test:
+        type: ImageFolders
+        paths:
+            x: '/PATH/test/raw/{{name}}.png'
+            y: '/PATH//test/gt/{{name}}.png'
+
+
+###########################################################
+#              ---   DATA-AUGMENTATIONS   ---             #
+###########################################################
+data-augmentation:
+    flip: True
+    rotation: True
+        #angle: [-180, 180]
+        #interpolation: 'linear'
+        #border-mode: {constant: 0}
+    elastic:
+        alpha: 10
+        sigma: 20
+        alpha-affine: 50
+
+    gamma: False # [-0.1, 0.1]
+    brightness: False # [-0.1, 0.1]
+    hue: False # [-20, 20]
+    saturation: False # [-20, 20]
+
+
+###########################################################
+#                     ---   MISC   ---                    #
+###########################################################
+hardware:
+    num-worker: auto
+    half-precision: False
+    minibatch-splits: 1

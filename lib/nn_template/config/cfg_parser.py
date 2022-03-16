@@ -36,7 +36,7 @@ class CfgParser:
     def __getitem__(self, item):
         return self.get_config(item)
 
-    def get_config(self, version=0):
+    def get_config(self, version=0, parse_obj=True):
         if self.base is None:
             self.parse()
         if version >= len(self):
@@ -47,7 +47,8 @@ class CfgParser:
             cfg = self.base.merge(self.versions[version])
 
         CfgParser.resolve_refs(cfg, inplace=True)
-        CfgParser.resolve_registered_cfg(cfg, inplace=True)
+        if parse_obj:
+            CfgParser.parse_registered_cfg(cfg, inplace=True)
         return cfg
 
     def parse(self):
@@ -83,39 +84,54 @@ class CfgParser:
         investigated = set()
         resolved = {}
 
-        def resolve(path, rootpath):
-            abs_path = cfg_dict.abs_path(path, rootpath, check_exists=True)
+        def resolve(ref, parent_node):
+            ref = ref.strip()
+            if ref.startswith('.'):     # Relative ref
+                ref = ref[1:]
+            else:                       # Absolute ref
+                parent_node = cfg_dict
+
+            rel_path = parent_node.abs_path(ref)
+            abs_path = parent_node.path() + rel_path
             if abs_path in resolved:
                 return resolved[abs_path]
             if abs_path in investigated:
-                raise ParseError(f'Redundent definition of "{abs_path}"', cfg_dict.get_mark(abs_path))
+                raise ParseError(f'Redundent definition of "{abs_path}"', parent_node.get_mark(rel_path))
             investigated.add(abs_path)
-            d = cfg_dict[abs_path]
-            if isinstance(d, CfgDict):
-                search_refs(abs_path)
-            elif isinstance(d, str) and d.startswith('$'):
-                try:
-                    d = resolve(d[1:], abs_path[:-1])
-                except KeyError:
-                    raise ParseError(f'Unkown reference to "{d}"', cfg_dict.get_mark(abs_path))
-            resolved[abs_path] = d
-            investigated.remove(abs_path)
-            return d
 
-        def search_refs(path):
-            r = cfg_dict[path]
-            for cursor in r.walk_cursor():
+            node = parent_node
+            for p in rel_path:
+                if not isinstance(node, CfgDict):
+                    raise KeyError
+                parent = node
+                node = parent[p]
+                if isinstance(node, str) and node.startswith('$'):
+                    try:
+                        node = resolve(node[1:], parent)
+                    except KeyError:
+                        raise ParserError(f'Unknown reference to "{node}"', parent.get_mark(p))
+                    parent[p] = node
+
+            if isinstance(node, CfgDict):
+                search_resolve_refs(node)
+            resolved[abs_path] = node
+            investigated.remove(abs_path)
+            return node
+
+        def search_resolve_refs(node):
+            for cursor in node.walk_cursor():
                 v = cursor.value
                 if isinstance(v, str) and v.startswith('$'):
                     try:
-                        cursor.value = resolve(v[1:], '.'.join((path+cursor.path)[:-1]))
+                        cursor.value = resolve(v[1:], cursor.parent)
                     except KeyError:
-                        raise ParserError(f'Unkown reference to "{v}"', cursor.mark)
-        search_refs(())
+                        raise ParserError(f'Unknown reference to "{v}"', cursor.mark)
+
+        search_resolve_refs(cfg_dict)
         return cfg_dict
 
     @staticmethod
-    def resolve_registered_cfg(cfg_dict: CfgDict, inplace=False):
+    def parse_registered_cfg(cfg_dict: CfgDict, inplace=False):
         if not inplace:
             cfg_dict = cfg_dict.copy()
         for path, cfg_obj_class in _registered_cfg_object.items():
