@@ -1,0 +1,5 @@
+%INHERIT references.yaml
+---
+
+references:
+    inherited-ref: $interesting.word

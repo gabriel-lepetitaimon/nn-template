@@ -134,6 +134,7 @@ class Cfg:
 
     Parser = CfgParser
     Obj = CfgObj
+    Dict = CfgDict
     Attr = CfgAttr
     InvalidAttr = InvalidCfgAttr
 

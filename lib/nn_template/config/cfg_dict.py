@@ -1,6 +1,7 @@
 from functools import reduce
 from typing import Mapping, List
 from collections.abc import Iterable
+import weakref
 
 
 def is_dict(o):
@@ -57,6 +58,19 @@ class CursorCfgDict:
     def value(self, v):
         self._cfg_dict[self.path] = v
 
+    def delete(self, remove_empty_roots=False):
+        del self._cfg_dict[self.path]
+        if remove_empty_roots:
+            r = self._cfg_dict
+
+            while self.path and len(r) == 0 and r.parent:
+                name = self.path.pop()
+                r = r.parent
+                del r[name]
+            self.up()
+        else:
+            self.out()
+
     @property
     def mark(self):
         try:
@@ -79,13 +93,13 @@ class CursorCfgDict:
     def out(self):
         self.direction = 'out'
 
-    def up(self):
+    def up(self, times=1):
         self.direction = 'up'
 
 
 class CfgDict(dict):
     @staticmethod
-    def from_dict(d, recursive=False, read_marks=False, parent=None):
+    def from_dict(d, recursive=False, read_marks=False):
         if isinstance(d, list) and all(isinstance(_, dict) and len(_)==1 for _ in d):
             l = d
             d = {}
@@ -95,7 +109,7 @@ class CfgDict(dict):
         if isinstance(d, CfgDict):
             return d
         elif isinstance(d, dict):
-            r = CfgDict(parent=parent)
+            r = CfgDict()
             for k, v in d.items():
                 if read_marks:
                     if k == '__mark__':
@@ -107,19 +121,21 @@ class CfgDict(dict):
                 if is_dict(v) and recursive:
                     if isinstance(v, CfgDict) and v.mark is not None:
                         r.child_mark[str(k)] = v.mark
-                    v = CfgDict.from_dict(v, recursive=True, read_marks=read_marks, parent=r)
+                    v = CfgDict.from_dict(v, recursive=True, read_marks=read_marks)
                 r[str(k)] = v
             return r
         return d
 
-    def __init__(self, parent=None):
+    def __init__(self, data: Mapping[str, any] = None, parent=None):
         super(CfgDict, self).__init__()
         self.mark = None
         self.child_mark = {}
 
-        import weakref
         self._parent = None if parent is None else weakref.ref(parent)
         self._name = None
+
+        if data is not None:
+            self.update(data)
 
     @property
     def parent(self):
@@ -132,7 +148,7 @@ class CfgDict(dict):
         parent = self.parent
         if parent is None:
             return None
-        for k, v in self.parent.items():
+        for k, v in parent.items():
             if v is self:
                 self._name = k
                 return k
@@ -169,9 +185,6 @@ class CfgDict(dict):
             s = f'CfgDict[{self.name}]:\n'
         return s+self.to_yaml()
 
-    def __repr__(self):
-        return 'CfgDict()'
-
     def to_json(self):
         from json import dumps
         return dumps(self)
@@ -181,26 +194,44 @@ class CfgDict(dict):
         return yaml.dump(self.to_dict(), stream=file, default_flow_style=False)
 
     def abs_path(self, rel_path, root=None, check_exists=False):
-        path = tuple(_.strip() for _ in rel_path.split('.'))
-        if root is None:
-            root = self.root()
-        if root is not self:
-            roots = self.roots()
-            try:
-                id_root = roots.index(root)
-            except ValueError:
-                raise ValueError(f'"{root.full_name}" is not a parent of "{self.full_name}"') from None
-            path = tuple(reversed(roots[:id_root]))+(self.name,)+path
+        if isinstance(rel_path, str):
+            path = list(_.strip() for _ in rel_path.split('.'))
+        elif isinstance(rel_path, tuple) and all(isinstance(_, str) for _ in rel_path):
+            path = list(rel_path)
+        else:
+            raise TypeError('Invalid CfgDict key: %s.' % repr(rel_path))
 
-        abs_path = []
-        for p in path:
-            if p:
-                abs_path += [p]
-            elif len(abs_path):
-                abs_path.pop()
-            else:
-                raise KeyError(f'Impossible to reach "{rel_path}" from "{self.full_name}":\n'
-                                 f'Too many up in the hierarchy.')
+        if '' in path:
+            if root is None:
+                if '' in path and self._parent is not None:
+                    roots = self.roots()
+                    root = roots[-1]
+                    path = list(reversed(roots[:-1]))+[self.name]+path
+                    id_root = len(roots)
+            elif root is not self:
+                roots = self.roots()
+                try:
+                    id_root = roots.index(root)+1
+                except ValueError:
+                    raise ValueError(f'"{root.full_name}" is not a parent of "{self.full_name}"') from None
+                path = list(reversed(roots[:id_root-1]))+[self.name]+path
+
+            abs_path = []
+            for p in path:
+                if p:
+                    abs_path += [p]
+                elif len(abs_path):
+                    abs_path.pop()
+                else:
+                    raise KeyError(f'Impossible to reach "{rel_path}" from "{self.full_name}":\n'
+                                     f'Too many up in the hierarchy.')
+        else:
+            abs_path = path
+            if root is None:
+                root = self
+        while len(abs_path) > 1 and isinstance(root.get(abs_path[0], None), CfgDict):
+            root = root[abs_path[0]]
+            del abs_path[0]
         abs_path = tuple(abs_path)
 
         if check_exists:
@@ -210,29 +241,43 @@ class CfgDict(dict):
                     r = r[p]
                 except KeyError:
                     raise KeyError(f'Unknown path "{".".join(abs_path[:i+1])}".') from None
-        return abs_path
+
+        return root, abs_path
 
     def get_mark(self, path):
-        if isinstance(path, str):
-            path = self.abs_path(path)
+        root, path = self.abs_path(path, check_exists=True)
+        #if isinstance(path, str):
+        #    root,  path = self.abs_path(path)
+        #else:
+        #    root = self
+
         if len(path) == 0:
-            return self.mark
-        return self['.'.join(path[:-1])].child_mark[path[-1]]
+            return root.mark
+        return root[path[:-1]].child_mark.get(path[-1], None)
 
     def __setitem__(self, key: str, value):
-        if isinstance(key, str):
-            key = self.abs_path(key)
-        elif not isinstance(key, tuple) or any(not isinstance(_, str) for _ in key):
-            raise TypeError('Invalid CfgDict key: %s.' % repr(key))
+        if key == '__mark__':
+            self.mark = value
+            return
+        elif key == '__child_marks__':
+            self.child_mark = value
+            return
+
+        root, key = self.abs_path(key)
+
         if isinstance(value, dict):
             try:
-                value = CfgDict.from_dict(value, recursive=True, parent=self)
+                value = CfgDict.from_dict(value, recursive=True)
             except:
                 pass
-        if len(key) == 1:
-            return super(CfgDict, self).__setitem__(key[0], value)
 
-        r = self
+        if len(key) == 1:
+            if isinstance(value, CfgDict):
+                value._parent = weakref.ref(root)
+                value._name = key[0]
+            return super(CfgDict, root).__setitem__(key[0], value)
+
+        r = root
         for i, k in enumerate(key[:-1]):
             if k not in r:
                 r[k] = CfgDict()
@@ -242,14 +287,16 @@ class CfgDict(dict):
     def __getitem__(self, item):
         if item == () or item == '':
             return self
-        elif isinstance(item, str):
-            item = self.abs_path(item)
-        elif not isinstance(item, tuple) or any(not isinstance(_, str) for _ in item):
-            raise TypeError('Invalid CfgDict key: %s.' % repr(item))
-        if len(item) == 1:
+        elif isinstance(item, tuple) and len(item) == 1 and isinstance(item[0], str):
             return super(CfgDict, self).__getitem__(item[0])
+        elif isinstance(item, str):
+            item = tuple(_.strip() for _ in item.split('.'))
+            if len(item) == 1:
+                return super(CfgDict, self).__getitem__(item[0])
 
-        r = self
+        root, item = self.abs_path(item)
+
+        r = root
         for i, it in enumerate(item):
             try:
                 r = r[it]
@@ -258,23 +305,21 @@ class CfgDict(dict):
         return r
         
     def __delitem__(self, item):
-        if isinstance(item, str):
-            item = self.abs_path(item)
-        elif not isinstance(self, tuple) or any(not isinstance(_, str) for _ in item):
-            raise TypeError('Invalid CfgDict key: %s.' % repr(item))
+        root, item = self.abs_path(item)
         if len(item) == 1:
             item = item[0]
             if item in self.child_mark:
                 del self.child_mark[item]
+            node = self[item]
+            if isinstance(node, CfgDict) and node.parent is self:
+                node._parent = None
             return super(CfgDict, self).__delitem__(item)
 
-        r = self[item[:-1]]
+        r = root[item[:-1]]
         del r[item[-1]]
 
     def __contains__(self, item):
-        if not isinstance(item, str):
-            raise TypeError('Invalid CfgDict key: %s.' % repr(item))
-        if '.' not in item:
+        if isinstance(item, str) and '.' not in item:
             return super(CfgDict, self).__contains__(item)
 
         try:
@@ -284,7 +329,7 @@ class CfgDict(dict):
         return True
 
     def pop(self, path):
-        path = self.abs_path(path)
+        root, path = self.abs_path(path, check_exists=True)
         r = reduce(lambda r, p: r[p], path[:-1], self)
         v = r[path[-1]]
         del r[path[-1]]
@@ -302,7 +347,7 @@ class CfgDict(dict):
             self.child_mark.update(__m.child_mark)
         for k, v in __m.items():
             if is_dict(v) and not isinstance(v, CfgDict):
-                v = CfgDict.from_dict(v, recursive=True, parent=self)
+                v = CfgDict.from_dict(v, recursive=True)
             if k in self and isinstance(self[k], CfgDict):
                 self[k].update(v)
             else:
@@ -330,10 +375,14 @@ class CfgDict(dict):
         return self
 
     def walk(self):
-        for root, k, v in self.walk_cursor():
-            yield f"{root}.{k}"
+        for cursor in self._walk_cursor():
+            yield cursor.fullname
 
-    def walk_cursor(self, rootpath=(), root_cfg=None) -> Iterable[CursorCfgDict]:
+    def walk_cursor(self) -> Iterable[CursorCfgDict]:
+        for cursor in self._walk_cursor():
+            yield cursor
+
+    def _walk_cursor(self, rootpath=(), root_cfg=None) -> Iterable[CursorCfgDict]:
         if root_cfg is None:
             root_cfg = self
         for item in list(self.keys()):
@@ -342,7 +391,7 @@ class CfgDict(dict):
             value = self[item]
             item_path = rootpath+(item,)
             if isinstance(value, CfgDict):
-                for cursor in value.walk_cursor(rootpath=item_path, root_cfg=root_cfg):
+                for cursor in value._walk_cursor(rootpath=item_path, root_cfg=root_cfg):
                     yield cursor
                     if cursor.direction != 'continue' and cursor.path[:-1] == rootpath:
                         if cursor.direction == 'up':
@@ -351,6 +400,7 @@ class CfgDict(dict):
                             break
             else:
                 yield CursorCfgDict(root_cfg, item_path)
+
 
     def copy(self):
         from copy import deepcopy

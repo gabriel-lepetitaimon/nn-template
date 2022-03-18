@@ -11,6 +11,9 @@ from .cfg_object import CfgObj
 _registered_cfg_object = {}
 
 
+UNDEFINED = '__undefined__'
+
+
 def register_obj(path: str, ):
     if path in _registered_cfg_object:
         raise ValueError(f'A configuration object is already registered at path "{path}"')
@@ -21,12 +24,21 @@ def register_obj(path: str, ):
     return register
 
 
+class ParseError(Exception):
+    def __init__(self, error, mark=None):
+        super(ParseError, self).__init__(error+(', '+str(mark)+'.' if mark is not None else '.'))
+        self.mark = mark
+        self.error = error
+
+
 class CfgParser:
     def __init__(self, cfg_path):
         self.path = cfg_path
         self.files = []
         self.base = None
         self.versions = None
+
+    Error = ParseError
 
     def __len__(self):
         if self.base is None:
@@ -60,21 +72,26 @@ class CfgParser:
         self.files = [f]
         dependencies = list(f.inherit)
         while dependencies:
-            f = dependencies.pop(0).interpret()
+            f = dependencies.pop(0).parse()
             self.files += [f]
             for d in f.inherit:
                 if d not in self.files and d not in dependencies:
                     dependencies += [d]
 
     def _merge_files(self):
-        self.base = self.files[-1].base
-        for f in reversed(self.files[:-1]):
-            self.base.update(f.base)
+        base = CfgDict()
         versions = []
-        for _ in self.files:
-            if _.versions:
-                versions += [_.versions]
-        self.versions = versions_product(versions)
+
+        for f in reversed(self.files):
+            # Merge bases
+            base.update(f.base)
+
+            # Filter previous versions to remove fixed field
+            inherited_versions = filter_versions_with_base(base, versions)
+            versions = versions_product(f.versions, base_versions=inherited_versions)
+
+        self.versions = versions
+        self.base = base
 
     @staticmethod
     def resolve_refs(cfg_dict: CfgDict, inplace=False):
@@ -91,15 +108,15 @@ class CfgParser:
             else:                       # Absolute ref
                 parent_node = cfg_dict
 
-            rel_path = parent_node.abs_path(ref)
-            abs_path = parent_node.path() + rel_path
+            rel_root, rel_path = parent_node.abs_path(ref)
+            abs_path = rel_root.path() + rel_path
             if abs_path in resolved:
                 return resolved[abs_path]
             if abs_path in investigated:
-                raise ParseError(f'Redundent definition of "{abs_path}"', parent_node.get_mark(rel_path))
+                raise ParseError(f'Redundent definition of "{".".join(abs_path)}"', rel_root.get_mark(rel_path))
             investigated.add(abs_path)
 
-            node = parent_node
+            node = rel_root
             for p in rel_path:
                 if not isinstance(node, CfgDict):
                     raise KeyError
@@ -109,7 +126,7 @@ class CfgParser:
                     try:
                         node = resolve(node[1:], parent)
                     except KeyError:
-                        raise ParserError(f'Unknown reference to "{node}"', parent.get_mark(p))
+                        raise ParseError(f'Unknown reference to "{node}"', parent.get_mark(p)) from None
                     parent[p] = node
 
             if isinstance(node, CfgDict):
@@ -125,9 +142,12 @@ class CfgParser:
                     try:
                         cursor.value = resolve(v[1:], cursor.parent)
                     except KeyError:
-                        raise ParserError(f'Unknown reference to "{v}"', cursor.mark)
+                        raise ParseError(f'Unknown reference to "{v}"', cursor.mark) from None
 
-        search_resolve_refs(cfg_dict)
+        try:
+            search_resolve_refs(cfg_dict)
+        except ParseError as e:
+            raise ParseError(e.error, e.mark) from None
         return cfg_dict
 
     @staticmethod
@@ -183,7 +203,7 @@ class CfgFile:
                              f'(Only yaml and json are accepted.)')
 
         seq_versions = CfgFile.parse_sequence_versions(base)
-        self.versions = versions_product([[{k: _} for _ in l] for k, l in seq_versions.items()] + [versions])
+        self.versions = versions_product(versions, *[[{k: _} for _ in l] for k, l in seq_versions.items()])
         self.base = base
 
         return self
@@ -202,14 +222,36 @@ class CfgFile:
         return seq_v
 
 
-def versions_product(versions):
+def versions_product(*new_versions, base_versions=None):
     r = []
-    for idxs in product(*[range(len(_)) for _ in versions]):
+    for idxs in product(*[range(len(_)) for _ in new_versions]):
         v = CfgDict()
-        for i, version in reversed(list(zip(idxs, versions))):
+        for i, version in reversed(list(zip(idxs, new_versions))):
             v.update(version[i])
-        r.append(v)
+
+        if base_versions:
+            merged_versions = filter_versions_with_base(v, base_versions)
+            for merged_version in merged_versions:
+                if merged_version not in r:
+                    r.append(merged_versions)
+        elif v not in r:    # Check for duplicates
+            r.append(v)
     return r
+
+
+def filter_versions_with_base(base, versions):
+    filtered_versions = []
+    for version in versions:
+        for cursor in version.walk_cursor():
+            v = base.get(cursor.path, UNDEFINED)
+            if v is not UNDEFINED:
+                if v == cursor.value:
+                    cursor.delete(remove_empty_roots=True)
+                else:
+                    break
+        else:
+            filtered_versions += [version]
+    return filtered_versions
 
 
 class CfgYamlLoader(SafeLoader):
@@ -289,9 +331,4 @@ class Mark:
     def filepath(self):
         return self.file.path
 
-
-class ParseError(Exception):
-    def __init__(self, msg, mark=None):
-        super(ParseError, self).__init__(msg+(', '+str(mark) if mark is not None else ''))
-        self.mark = mark
 
