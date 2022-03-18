@@ -1,0 +1,7 @@
+%INHERIT  versions.yaml
+---
+list: 0
+---
+first-version: 'foo1'
+---
+second-version: 'foo2'

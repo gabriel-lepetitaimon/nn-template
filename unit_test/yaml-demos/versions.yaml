@@ -1,6 +1,7 @@
-versionned-list@: [ele1, {ele2: 'is a dictionnary'}]
+list@: [ele1, {ele2: 'is a dictionnary'}]
 ---
 document: 1
+doc1-attr: foo
 ---
 document: 2
 doc2-attr: foo

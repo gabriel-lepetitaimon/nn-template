@@ -3,6 +3,7 @@ from itertools import product
 from yaml import SafeLoader
 from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
+import numpy as np
 
 from .cfg_dict import CfgDict
 from .cfg_object import CfgObj
@@ -66,6 +67,7 @@ class CfgParser:
     def parse(self):
         self._parse()
         self._merge_files()
+        return self
 
     def _parse(self):
         f = CfgFile(self.path).parse()
@@ -87,8 +89,8 @@ class CfgParser:
             base.update(f.base)
 
             # Filter previous versions to remove fixed field
-            inherited_versions = filter_versions_with_base(base, versions)
-            versions = versions_product(f.versions, base_versions=inherited_versions)
+            inherited_versions = [filter_versions_with_base(v, base) for v in versions]
+            versions = versions_product(*f.versions, inherited_versions=inherited_versions)
 
         self.versions = versions
         self.base = base
@@ -203,7 +205,7 @@ class CfgFile:
                              f'(Only yaml and json are accepted.)')
 
         seq_versions = CfgFile.parse_sequence_versions(base)
-        self.versions = versions_product(versions, *[[{k: _} for _ in l] for k, l in seq_versions.items()])
+        self.versions = versions + [[{k: _} for _ in l] for k, l in seq_versions.items()]
         self.base = base
 
         return self
@@ -216,32 +218,34 @@ class CfgFile:
                 seq_v[cursor.fullname[:-1]] = cursor.value
                 r = cfg_dict[cursor.parent_fullname]
                 r.child_mark[cursor.name[:-1]] = r.child_mark[cursor.name]
-                r[cursor.name[:-1]] = cursor.value[0]
                 del r[cursor.name]
                 cursor.out()
         return seq_v
 
 
-def versions_product(*new_versions, base_versions=None):
+def versions_product(*new_versions, inherited_versions=None):
     r = []
+    new_versions = [_ for _ in new_versions if _]
     for idxs in product(*[range(len(_)) for _ in new_versions]):
         v = CfgDict()
         for i, version in reversed(list(zip(idxs, new_versions))):
             v.update(version[i])
 
-        if base_versions:
-            merged_versions = filter_versions_with_base(v, base_versions)
+        if inherited_versions:
+            merged_versions = [inherited_version.merge(v)
+                               for inherited_version in filter_versions_with_base(inherited_versions, v)]
             for merged_version in merged_versions:
                 if merged_version not in r:
-                    r.append(merged_versions)
+                    r.append(merged_version)
         elif v not in r:    # Check for duplicates
             r.append(v)
     return r
 
 
-def filter_versions_with_base(base, versions):
+def filter_versions_with_base(versions, base):
     filtered_versions = []
     for version in versions:
+
         for cursor in version.walk_cursor():
             v = base.get(cursor.path, UNDEFINED)
             if v is not UNDEFINED:
@@ -252,6 +256,47 @@ def filter_versions_with_base(base, versions):
         else:
             filtered_versions += [version]
     return filtered_versions
+
+
+def simplify_versions(versions, base):
+    if all(all(v in base for v in version.walk()) for version in versions):
+        return versions, base
+
+    # Remove versions which doesn't match base
+    simplified_versions = []
+    for version in versions:
+        no_common_keys = True
+        for cursor in version.walk_cursor():
+            v = base.get(cursor.path, default=UNDEFINED)
+            if v is not UNDEFINED:
+                no_common_keys = False
+                if cursor.value != base[cursor.path]:
+                    break
+                else:
+                    cursor.delete(remove_empty_roots=True)
+        else:
+            if no_common_keys:
+                continue
+            simplified_versions += [version]
+    versions = simplified_versions
+    if len(versions) == 0:
+        return [], base
+    elif len(versions) == 1:
+        return [], base.merge(versions[0])
+
+    # Remove shared field with the same value (duplicates field)
+    simplest_id = np.argmin(len(version) for version in versions)
+    simplest_version = versions[simplest_id]
+    other_versions = versions[:simplest_id]+versions[simplest_id+1:]
+    for cursor in simplest_version:
+        if all(cursor.value == version.get(cursor.path, default=UNDEFINED)
+               for version in other_versions):
+            base[cursor.path] = cursor.value
+            cursor.delete(remove_empty_roots=True)
+            for version in other_versions:
+                version.delete(cursor.path, remove_empty_roots=True)
+
+    return simplified_versions, base
 
 
 class CfgYamlLoader(SafeLoader):

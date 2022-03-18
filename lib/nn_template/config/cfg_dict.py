@@ -59,14 +59,8 @@ class CursorCfgDict:
         self._cfg_dict[self.path] = v
 
     def delete(self, remove_empty_roots=False):
-        del self._cfg_dict[self.path]
+        self._cfg_dict.delete(self.path, remove_empty_roots=remove_empty_roots)
         if remove_empty_roots:
-            r = self._cfg_dict
-
-            while self.path and len(r) == 0 and r.parent:
-                name = self.path.pop()
-                r = r.parent
-                del r[name]
             self.up()
         else:
             self.out()
@@ -303,6 +297,12 @@ class CfgDict(dict):
             except KeyError:
                 raise KeyError(f'Invalid item: {".".join(item[:i])}.') from None
         return r
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
         
     def __delitem__(self, item):
         root, item = self.abs_path(item)
@@ -328,12 +328,27 @@ class CfgDict(dict):
             return False
         return True
 
-    def pop(self, path):
+    def pop(self, path, remove_empty_roots=False):
         root, path = self.abs_path(path, check_exists=True)
         r = reduce(lambda r, p: r[p], path[:-1], self)
         v = r[path[-1]]
         del r[path[-1]]
+        if remove_empty_roots:
+            path = list(path)
+            while path and len(r) == 0:
+                name = path.pop()
+                r = r.parent
+                del r[name]
         return v
+
+    def delete(self, path, remove_empty_roots=False):
+        if isinstance(path, (list, tuple)):
+            for p in path:
+                self.pop(p, remove_empty_roots=remove_empty_roots)
+        else:
+            self.pop(path, remove_empty_roots=remove_empty_roots)
+
+
 
     def merge(self, __m: Mapping[str, any], **kwargs: any):
         d = self.copy()
