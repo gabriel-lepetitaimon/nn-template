@@ -3,3 +3,7 @@
 
 references:
     inherited-ref: $interesting.word
+
+interesting:
+    stuff:
+        elem2: "NEW FOO"

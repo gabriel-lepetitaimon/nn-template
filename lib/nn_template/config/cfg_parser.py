@@ -44,7 +44,7 @@ class CfgParser:
     def __len__(self):
         if self.base is None:
             return 0
-        return len(self.versions) if self.versions else 1
+        return np.prod(len(v) for v in self.versions) if self.versions else 1
 
     def __getitem__(self, item):
         return self.get_config(item)
@@ -52,17 +52,25 @@ class CfgParser:
     def get_config(self, version=0, parse_obj=True):
         if self.base is None:
             self.parse()
-        if version >= len(self):
-            raise IndexError(f'Version index {version} out of range.')
         if not self.versions:
             cfg = self.base.copy()
         else:
-            cfg = self.base.merge(self.versions[version])
+            cfg = self.base.merge(self.get_version(version))
 
         CfgParser.resolve_refs(cfg, inplace=True)
         if parse_obj:
             CfgParser.parse_registered_cfg(cfg, inplace=True)
         return cfg
+
+    def get_version(self, i):
+        shapes = tuple(len(v) for v in self.versions)
+        if i >= np.prod(shapes):
+            raise IndexError(f'Version index {i} out of range.')
+        idxs = np.unravel_index(i, shapes)
+        v = CfgDict()
+        for i, versions in zip(idxs, self.versions):
+            v.update(versions[i])
+        return v
 
     def parse(self):
         self._parse()
@@ -85,12 +93,7 @@ class CfgParser:
         versions = []
 
         for f in reversed(self.files):
-            # Merge bases
-            base.update(f.base)
-
-            # Filter previous versions to remove fixed field
-            inherited_versions = [filter_versions_with_base(v, base) for v in versions]
-            versions = versions_product(*f.versions, inherited_versions=inherited_versions)
+            versions, base = merge_versions_bases(versions, base, f.versions, f.base)
 
         self.versions = versions
         self.base = base
@@ -205,8 +208,15 @@ class CfgFile:
                              f'(Only yaml and json are accepted.)')
 
         seq_versions = CfgFile.parse_sequence_versions(base)
-        self.versions = versions + [[{k: _} for _ in l] for k, l in seq_versions.items()]
-        self.base = base
+        for v in versions:
+            for c in v.walk_cursor():
+                if c.path in seq_versions.keys() or c.path in base:
+                    raise ParseError(f'Attribute {c.path} is already defined', c.mark)
+        versions, self.base = curate_versions_base(versions, base)
+
+        self.versions = [[CfgDict({k: _}) for _ in l] for k, l in seq_versions.items()]
+        if versions:
+            self.versions.append(versions)
 
         return self
 
@@ -223,61 +233,41 @@ class CfgFile:
         return seq_v
 
 
-def versions_product(*new_versions, inherited_versions=None):
-    r = []
-    new_versions = [_ for _ in new_versions if _]
-    for idxs in product(*[range(len(_)) for _ in new_versions]):
-        v = CfgDict()
-        for i, version in reversed(list(zip(idxs, new_versions))):
-            v.update(version[i])
+def curate_versions_base(versions, base):
+    """
+    Remove versions that collide with the base (same keys different values).
+    Fill fields present in some versions but missing from other with its value in base.
+    Remove duplicated versions.
+    If only one version match the base, it is merged into the base and an empty versions list is returned.
+    If a field is the same in all versions, it is moved to the base.
 
-        if inherited_versions:
-            merged_versions = [inherited_version.merge(v)
-                               for inherited_version in filter_versions_with_base(inherited_versions, v)]
-            for merged_version in merged_versions:
-                if merged_version not in r:
-                    r.append(merged_version)
-        elif v not in r:    # Check for duplicates
-            r.append(v)
-    return r
-
-
-def filter_versions_with_base(versions, base):
-    filtered_versions = []
-    for version in versions:
-
-        for cursor in version.walk_cursor():
-            v = base.get(cursor.path, UNDEFINED)
-            if v is not UNDEFINED:
-                if v == cursor.value:
-                    cursor.delete(remove_empty_roots=True)
-                else:
-                    break
-        else:
-            filtered_versions += [version]
-    return filtered_versions
-
-
-def simplify_versions(versions, base):
-    if all(all(v in base for v in version.walk()) for version in versions):
+    Returns: Curated versions and base (base and versions have no fields in common, versions have no duplicates)
+    """
+    versions_keys = {_ for version in versions for _ in version.walk()}
+    shared_keys = {}
+    for k in versions_keys:
+        try:
+            shared_keys[k] = base[k]
+        except KeyError:
+            continue
+    if not shared_keys:
         return versions, base
 
     # Remove versions which doesn't match base
     simplified_versions = []
     for version in versions:
-        no_common_keys = True
-        for cursor in version.walk_cursor():
-            v = base.get(cursor.path, default=UNDEFINED)
-            if v is not UNDEFINED:
-                no_common_keys = False
-                if cursor.value != base[cursor.path]:
+        for k, base_value in shared_keys.items():
+            try:
+                version_value = version[k]
+            except KeyError:
+                version[k] = base_value     # If missing, fill with base_value
+            else:
+                if base_value != version_value:
                     break
-                else:
-                    cursor.delete(remove_empty_roots=True)
-        else:
-            if no_common_keys:
-                continue
-            simplified_versions += [version]
+        else:   # If version match
+            if version not in simplified_versions:  # and is not a duplicate
+                simplified_versions.append(version)
+
     versions = simplified_versions
     if len(versions) == 0:
         return [], base
@@ -297,6 +287,64 @@ def simplify_versions(versions, base):
                 version.delete(cursor.path, remove_empty_roots=True)
 
     return simplified_versions, base
+
+
+def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_base):
+    """
+    Assume that inherited_versions and inherited_base are curated.
+    Assume that new_versions and new_base are curated.
+
+    Returns:
+    """
+
+    # --- Remove fields present in new_versions from inherited_base ---
+    new_versions_keys = []
+    for versions in new_versions:
+        keys = {k for v in versions for k in v.walk()}
+
+        for k in keys:
+            try:
+                # Remove new_versions fields from inherited_base
+                inh_base_v = inherited_base.pop(k, remove_empty_roots=True)
+            except KeyError:
+                continue
+            for version in versions:
+                if k not in version:
+                    version[k] = inh_base_v     # Fill new_versions with inherited_base value
+        new_versions_keys.append(keys)
+
+    # --- Curate inherited_versions and new_base
+    for i, versions in enumerate(inherited_versions):
+        inherited_versions[i], new_base = curate_versions_base(versions, new_base)
+    inherited_versions = [v for v in inherited_versions if v]
+
+    # --- Curate inherited_versions and new_versions ---
+    curated_inh_versions = []
+    for i, inh_versions in enumerate(inherited_versions):
+        already_fused = False
+        inh_keys = {k for v in inh_versions for k in v.walk()}
+        for keys, (n, versions) in zip(new_versions_keys, enumerate(new_versions)):
+            shared_keys = inh_keys.union(keys)
+            if shared_keys:
+                if not already_fused:
+                    fused_versions = []
+                    for version in versions:
+                        fused_v, version = curate_versions_base(inh_versions, version)
+                        if fused_v:
+                            fused_versions += [version.merge(v) for v in fused_v]
+                        else:
+                            fused_versions.append(version)
+                    new_versions[n] = fused_versions
+                    already_fused = shared_keys, versions
+                else:
+                    conflict_keys = shared_keys.union(already_fused)
+                    raise ParseError(f'Conflict when resolving inherited versions.')
+        if not already_fused:
+            curated_inh_versions.append(inh_versions)
+    versions = curated_inh_versions + new_versions
+
+    base = inherited_base.merge(new_base)
+    return versions, base
 
 
 class CfgYamlLoader(SafeLoader):

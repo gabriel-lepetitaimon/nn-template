@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Mapping, List
+from typing import Mapping, Dict
 from collections.abc import Iterable
 import weakref
 
@@ -87,17 +87,17 @@ class CursorCfgDict:
     def out(self):
         self.direction = 'out'
 
-    def up(self, times=1):
+    def up(self):
         self.direction = 'up'
 
 
 class CfgDict(dict):
     @staticmethod
     def from_dict(d, recursive=False, read_marks=False):
-        if isinstance(d, list) and all(isinstance(_, dict) and len(_)==1 for _ in d):
-            l = d
+        if isinstance(d, list) and all(isinstance(_, dict) and len(_) == 1 for _ in d):
+            tmp_d = d
             d = {}
-            for _ in l:
+            for _ in tmp_d:
                 k0 = next(iter(_.keys()))
                 d[k0] = _[k0]
         if isinstance(d, CfgDict):
@@ -109,7 +109,7 @@ class CfgDict(dict):
                     if k == '__mark__':
                         r.mark = v
                         continue
-                    elif k =='__child_marks__':
+                    elif k == '__child_marks__':
                         r.child_mark = v
                         continue
                 if is_dict(v) and recursive:
@@ -120,7 +120,7 @@ class CfgDict(dict):
             return r
         return d
 
-    def __init__(self, data: Mapping[str, any] = None, parent=None):
+    def __init__(self, data: Dict[str, any] = None, parent=None):
         super(CfgDict, self).__init__()
         self.mark = None
         self.child_mark = {}
@@ -152,8 +152,8 @@ class CfgDict(dict):
     def roots(self, max_level=None):
         roots = []
         r = self
-        i=0
-        while r.parent is not None and (max_level is None or i<max_level):
+        i = 0
+        while r.parent is not None and (max_level is None or i < max_level):
             r = r.parent
             roots += [r]
             i += 1
@@ -170,8 +170,11 @@ class CfgDict(dict):
     def full_name(self):
         return None if self._parent is None else '.'.join(self.path()+(self.name,))
 
-    def to_dict(self):
-        return recursive_dict_map(self, lambda k, v: v)
+    def to_dict(self, flatten_path=False):
+        if flatten_path:
+            return {cursor.fullname: cursor.value for cursor in self.walk_cursor()}
+        else:
+            return recursive_dict_map(self, lambda k, v: v)
 
     def __str__(self):
         s = ''
@@ -185,7 +188,10 @@ class CfgDict(dict):
 
     def to_yaml(self, file=None):
         import yaml
-        return yaml.dump(self.to_dict(), stream=file, default_flow_style=False)
+        return yaml.safe_dump(self.to_dict(), stream=file, default_flow_style=False, sort_keys=False)
+
+    def print_full_paths(self, prefix=''):
+        return (prefix+'\n').join(f'{k}: {v}' for k, v in self.to_dict(flatten_path=True).items())
 
     def abs_path(self, rel_path, root=None, check_exists=False):
         if isinstance(rel_path, str):
@@ -201,7 +207,7 @@ class CfgDict(dict):
                     roots = self.roots()
                     root = roots[-1]
                     path = list(reversed(roots[:-1]))+[self.name]+path
-                    id_root = len(roots)
+
             elif root is not self:
                 roots = self.roots()
                 try:
@@ -218,7 +224,7 @@ class CfgDict(dict):
                     abs_path.pop()
                 else:
                     raise KeyError(f'Impossible to reach "{rel_path}" from "{self.full_name}":\n'
-                                     f'Too many up in the hierarchy.')
+                                   f'Too many up in the hierarchy.')
         else:
             abs_path = path
             if root is None:
@@ -240,10 +246,6 @@ class CfgDict(dict):
 
     def get_mark(self, path):
         root, path = self.abs_path(path, check_exists=True)
-        #if isinstance(path, str):
-        #    root,  path = self.abs_path(path)
-        #else:
-        #    root = self
 
         if len(path) == 0:
             return root.mark
@@ -262,7 +264,7 @@ class CfgDict(dict):
         if isinstance(value, dict):
             try:
                 value = CfgDict.from_dict(value, recursive=True)
-            except:
+            except Exception:
                 pass
 
         if len(key) == 1:
@@ -292,10 +294,13 @@ class CfgDict(dict):
 
         r = root
         for i, it in enumerate(item):
+            error = KeyError(f'Invalid item: {".".join(item[:i])}.')
+            if not isinstance(r, CfgDict):
+                raise error
             try:
                 r = r[it]
             except KeyError:
-                raise KeyError(f'Invalid item: {".".join(item[:i])}.') from None
+                raise error from None
         return r
 
     def get(self, key, default=None):
@@ -330,7 +335,7 @@ class CfgDict(dict):
 
     def pop(self, path, remove_empty_roots=False):
         root, path = self.abs_path(path, check_exists=True)
-        r = reduce(lambda r, p: r[p], path[:-1], self)
+        r = reduce(lambda d, p: d[p], path[:-1], self)
         v = r[path[-1]]
         del r[path[-1]]
         if remove_empty_roots:
@@ -344,18 +349,20 @@ class CfgDict(dict):
     def delete(self, path, remove_empty_roots=False):
         if isinstance(path, (list, tuple)):
             for p in path:
-                self.pop(p, remove_empty_roots=remove_empty_roots)
+                try:
+                    self.pop(p, remove_empty_roots=remove_empty_roots)
+                except KeyError:
+                    continue
         else:
             self.pop(path, remove_empty_roots=remove_empty_roots)
-
-
 
     def merge(self, __m: Mapping[str, any], **kwargs: any):
         d = self.copy()
         d.update(__m)
+        d.update(kwargs)
         return d
 
-    def update(self, __m: Mapping[str, any], **kwargs: any) -> None:
+    def update(self, __m: Dict[str, any], **kwargs: any) -> None:
         __m.update(kwargs)
 
         if isinstance(__m, CfgDict):
@@ -415,7 +422,6 @@ class CfgDict(dict):
                             break
             else:
                 yield CursorCfgDict(root_cfg, item_path)
-
 
     def copy(self):
         from copy import deepcopy

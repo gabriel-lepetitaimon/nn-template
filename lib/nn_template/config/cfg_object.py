@@ -204,6 +204,7 @@ class Float(CfgAttr):
                                  f"for attribute {self.name}")
         return value
 
+
 class Str(CfgAttr):
     def check_value(self, value):
         value = super(Str, self).check_value(value)
