@@ -48,8 +48,8 @@ training:
             (decay): #default: False
                 (factor): 0 #  is disabled
                 (monitor): $task.optimize
-                (patience): ? # parse 1epoch 100iteration
-                (min-delta): ?
+                (patience): 1 # parse 1epoch 100iteration
+                (min-delta): 1e-3
 
     minibatch: 8
     drop-out: 0
@@ -81,30 +81,37 @@ datasets:
             y: '/PATH//val/gt/{{name}}.png'
 
     test:
-        type: ImageFolders
-        paths:
-            x: '/PATH/test/raw/{{name}}.png'
-            y: '/PATH//test/gt/{{name}}.png'
+        - "DRIVE":
+            type: ImageFolders
+            paths:
+                x: '/PATH/test/raw/{{name}}.png'
+                y: '/PATH//test/gt/{{name}}.png'
+        - "MESSIDOR":
+              type: ImageFolders
+              paths:
+                  x: '/PATH/test/raw/{{name}}.png'
+                  y: '/PATH//test/gt/{{name}}.png'
 
 
 ###########################################################
 #              ---   DATA-AUGMENTATIONS   ---             #
 ###########################################################
 data-augmentation:
-    flip: True
-    rotation: True
-        #angle: [-180, 180]
-        #interpolation: 'linear'
-        #border-mode: {constant: 0}
-    elastic:
-        alpha: 10
-        sigma: 20
-        alpha-affine: 50
+    default:
+        flip: True
+        rotation: True
+            #angle: [-180, 180]
+            #interpolation: 'linear'
+            #border-mode: {constant: 0}
+        elastic:
+            alpha: 10
+            sigma: 20
+            alpha-affine: 50
 
-    gamma: False # [-0.1, 0.1]
-    brightness: False # [-0.1, 0.1]
-    hue: False # [-20, 20]
-    saturation: False # [-20, 20]
+        gamma: null # [-0.1, 0.1]
+        brightness: null # [-0.1, 0.1]
+        hue: null # [-20, 20]
+        saturation: null # [-20, 20]
 
 
 ###########################################################

@@ -5,28 +5,31 @@ from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
 import numpy as np
 
-from .cfg_dict import CfgDict
-from .cfg_object import CfgObj
+from .cfg_dict import CfgDict, CfgCollection
+from .cfg_object import CfgObj, UNDEFINED, CfgCollectionType
 
 
 _registered_cfg_object = {}
 
 
-UNDEFINED = '__undefined__'
-
-
-def register_obj(path: str, ):
+def register_obj(path: str, collection=False):
     if path in _registered_cfg_object:
         raise ValueError(f'A configuration object is already registered at path "{path}"')
 
-    def register(cfg_obj: CfgObj):
-        _registered_cfg_object[path] = cfg_obj
+    def register(cfg_obj: type):
+        if not collection:
+            _registered_cfg_object[path] = cfg_obj
+        else:
+            default_key = collection if isinstance(collection, str) else None
+            _registered_cfg_object[path] = CfgCollectionType(obj_type=cfg_obj, default_key=default_key)
         return cfg_obj
     return register
 
 
 class ParseError(Exception):
     def __init__(self, error, mark=None):
+        if error.endswith('.'):
+            error = error[:-1]
         super(ParseError, self).__init__(error+(', '+str(mark)+'.' if mark is not None else '.'))
         self.mark = mark
         self.error = error
@@ -161,7 +164,7 @@ class CfgParser:
             cfg_dict = cfg_dict.copy()
         for path, cfg_obj_class in _registered_cfg_object.items():
             if path in cfg_dict:
-                cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path])
+                cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path], mark=cfg_dict.get_mark(path))
         return cfg_dict
 
 
@@ -278,7 +281,7 @@ def curate_versions_base(versions, base):
     simplest_id = np.argmin(len(version) for version in versions)
     simplest_version = versions[simplest_id]
     other_versions = versions[:simplest_id]+versions[simplest_id+1:]
-    for cursor in simplest_version:
+    for cursor in simplest_version.walk_cursor():
         if all(cursor.value == version.get(cursor.path, default=UNDEFINED)
                for version in other_versions):
             base[cursor.path] = cursor.value
@@ -337,7 +340,7 @@ def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_b
                     new_versions[n] = fused_versions
                     already_fused = shared_keys, versions
                 else:
-                    conflict_keys = shared_keys.union(already_fused)
+                    # conflict_keys = shared_keys.union(already_fused)
                     raise ParseError(f'Conflict when resolving inherited versions.')
         if not already_fused:
             curated_inh_versions.append(inh_versions)
@@ -379,7 +382,7 @@ class CfgYamlLoader(SafeLoader):
             value = self.scan_tag_directive_value(start_mark)
             end_mark = self.get_mark()
         elif name == "INHERIT":
-            value = self.scan_inherit_value(start_mark)
+            value = self.scan_inherit_value()
             if value in self.inherit:
                 raise ParserError("while parsing inheritance", self.marks[-1],
                                   f'"{value}" is already inherited.', start_mark)
@@ -392,7 +395,7 @@ class CfgYamlLoader(SafeLoader):
         self.scan_directive_ignored_line(start_mark)
         return DirectiveToken(name, value, start_mark, end_mark)
 
-    def scan_inherit_value(self, start_mark):
+    def scan_inherit_value(self):
         while self.peek() == ' ':
             self.forward()
         value = ""
@@ -405,7 +408,7 @@ class CfgYamlLoader(SafeLoader):
 
 
 class Mark:
-    def __init__(self, line:int, col:int, file:CfgFile|str):
+    def __init__(self, line: int, col: int, file: CfgFile | str):
         self.line = line
         self.col = col
         self.file = file if isinstance(file, CfgFile) else CfgFile(file)
@@ -423,5 +426,3 @@ class Mark:
     @property
     def filepath(self):
         return self.file.path
-
-

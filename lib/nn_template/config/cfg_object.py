@@ -1,7 +1,10 @@
 from collections.abc import Mapping
 from types import UnionType
 
-from .cfg_dict import CfgDict
+from .cfg_dict import CfgDict, CfgCollection
+
+
+UNDEFINED = '__undefined__'
 
 
 class InvalidCfgAttr(Exception):
@@ -23,81 +26,142 @@ class MetaCfgObj(type):
 
         # Adds class attribute typed by python annotation as CfgAttr
         for attr_name, attr_type in clsdict.get('__annotations__', {}).items():
-            attr_value = clsdict.get(attr_name, '__undefined__')
-            default = '__undefined__' if isinstance(attr_value, CfgAttr) is None else attr_value
-            attr_type = _type2attr(attr_type, default=default)
+            attr_value = clsdict.get(attr_name, UNDEFINED)
+            try:
+                if attr_value is not UNDEFINED:
+                    attr = _type2attr(attr_type, value=attr_value)
+                else:
+                    attr = _type2attr(attr_type)
+            except TypeError:
+                raise InvalidCfgAttr(f'Incoherent value and type hint for attribute {attr_name}.')
 
-            if attr_value == '__undefined__':
-                attr = attr_type
-            elif not isinstance(attr_value, type(attr_type)):
-                raise InvalidCfgAttr('Incoherent attribute and type hint.')
-            elif isinstance(attr_value, Obj):
-                if attr_value.type is not None:
-                    if not issubclass(attr_type.type, attr_value.type):
-                        raise InvalidCfgAttr('Incoherent attribute and type hint.')
-                    attr = attr_value
-                else:
-                    attr = Obj(type=attr_type.type, shortcut=attr_value.shortcut, default=attr_value.default)
-                    attr.name = attr_name
-            elif isinstance(attr_value, OneOf):
-                if attr_value.values is not None:
-                    raise InvalidCfgAttr('Incoherent attribute and type hint.')
-                else:
-                    attr = OneOf(*attr_type.values, default=attr_value.default)
-                    attr.name = attr_name
-            else:
-                attr = attr_value
+            attr.name = attr_name
             clsdict['__attr__'][attr_name] = attr
 
         return type.__new__(mcs, name, bases, clsdict)
 
     def __contains__(cls, item):
-        return item in cls.__attr__
+        return hasattr(cls, '__attr__') and item in cls.__attr__
+
+
+def _type2attr(typehint, value=UNDEFINED):
+    if issubclass(typehint, CfgObj):
+        if isinstance(value, Obj):
+            return Obj(type=typehint, shortcut=value.shortcut, default=value.default)
+        else:
+            return Obj(type=typehint, default=value)
+    elif isinstance(typehint, UnionType):
+        if isinstance(value, OneOf):
+            if value.values:
+                raise TypeError
+            return OneOf(typehint.__args__, default=value.default)
+        elif isinstance(value, Obj):
+            raise TypeError
+        else:
+            return OneOf(typehint.__args__, default=value)
+
+    match typehint.__name__:
+        case "int": typehint = Int
+        case "float": typehint = Float
+        case "bool": typehint = Bool
+        case "str": typehint = Str
+        case _: typehint = Any
+
+    if isinstance(value, CfgAttr):
+        if type(value) != typehint:
+            raise TypeError
+        return typehint(default=value.default)
+    return typehint(default=value)
 
 
 class CfgObj(CfgDict, metaclass=MetaCfgObj):
     __attr__ = {}
 
-    def __init__(self):
-        super(CfgObj, self).__init__()
+    def __init__(self, data=None, parent=None):
+        super(CfgObj, self).__init__(data=data, parent=parent)
         self._attr_values = {}
 
     def __setitem__(self, key, value):
         attr_name = key.replace('-', '_')
         if isinstance(attr_name, str) and attr_name in self.__attr__.keys():
+            from .cfg_parser import ParseError
+
             attr = self.__attr__[attr_name]
             try:
+                mark = self.get_mark(key)
+            except KeyError:
+                mark = None
+
+            try:
                 attr_value = attr.check_value(value)
-            except InvalidCfgAttr as e:
-                from .cfg_parser import ParseError
-                try:
-                    mark = self.get_mark(key)
-                except KeyError:
-                    mark = None
+            except (InvalidCfgAttr, ParseError) as e:
                 raise ParseError(str(e), mark) from None
-            if isinstance(attr_value, CfgDict) and isinstance(value, CfgDict):
-                value = attr_value
+            if isinstance(attr_value, CfgDict):
+                if isinstance(value, CfgDict):
+                    value = attr_value
+                else:
+                    attr_value.mark = mark
             self._attr_values[attr_name] = attr_value
         super(CfgObj, self).__setitem__(key, value)
 
+    def check_integrity(self):
+        missing_keys = {k for k, v in self._attr_values.items() if v is UNDEFINED}
+        if missing_keys:
+            raise InvalidCfgAttr(f"Missing not-optional attributes {tuple(missing_keys)} "
+                                 f"to define {type(self).__name__}")
+
     @classmethod
-    def from_cfg(cls, cfg_dict: CfgDict):
+    def from_cfg(cls, cfg_dict: dict[str, any], mark=None):
         r = cls()
         r.update(cfg_dict)
+        if mark is not None:
+            r.mark = mark
+        try:
+            r.check_integrity()
+        except InvalidCfgAttr as e:
+            from .cfg_parser import ParseError
+            raise ParseError(str(e), mark) from None
+        return r
+
+    @property
+    def attr(self):
+        return {k: getattr(self, k) for k in self.__attr__}
+
+    def _repr_markdown_(self):
+        return "\n".join([f"**{self.name}** _{type(self).__name__}_:\n"]+[f"- {k}: {v}" for k, v in self.attr.items()])
+
+
+class CfgCollectionType:
+    def __init__(self, obj_type, default_key=None):
+        self.obj_type = obj_type
+        self.default_key = default_key
+
+    def __call__(self, data=None):
+        return self.from_cfg(data)
+
+    def from_cfg(self, cfg_dict: CfgDict, mark=None):
+        r = CfgCollection.from_dict(data=cfg_dict, obj_type=self.obj_type, default_key=self.default_key,
+                                    recursive=True, read_marks=True)
+        if mark is not None:
+            r.mark = mark
         return r
 
 
 class CfgAttr:
-    def __init__(self, default='__undefined__'):
+    def __init__(self, default=UNDEFINED, nullable=None):
         self.name = ""
-        if default is not None and default != '__undefined__':
+        self._checker = None
+        if nullable is None:
+            nullable = default is None
+        self.nullable = nullable
+        if default is not None and default is not UNDEFINED:
             default = self.check_value(default)
         self.default = default
 
     def __set_name__(self, owner, name):
         self.name = name
-        self._checker = None
-        owner.__attr__[name] = self
+        if name not in owner.__attr__:
+            owner.__attr__[name] = self
 
     def __set__(self, instance, value):
         raise AttributeError('Attempt to modify a read-only attribute.')
@@ -106,11 +170,19 @@ class CfgAttr:
         try:
             return instance._attr_values[self.name]
         except KeyError as e:
-            if self.default == '__undefined__':
+            if self.default is UNDEFINED:
                 raise AttributeError(f'Attribute {self.name} not yet specified.') from None
+            return self.default
 
     def check_value(self, value):
-        return value if self._checker is None else self.checker(value)
+        if self.nullable and value is None:
+            return None
+        if self._checker is not None:
+            value = self._checker(value)
+        return self._check_value(value)
+
+    def _check_value(self, value):
+        return value
 
     def checker(self, func):
         """
@@ -121,10 +193,10 @@ class CfgAttr:
 
 
 class Int(CfgAttr):
-    def __init__(self, default='__undefined__', min=None, max=None):
-        super(Int, self).__init__(default)
+    def __init__(self, default=UNDEFINED, min=None, max=None):
         self.min = min
         self.max = max
+        super(Int, self).__init__(default)
 
     @staticmethod
     def interpret(value) -> int:
@@ -135,8 +207,7 @@ class Int(CfgAttr):
                 }[value[-1]]
         return int(value)
 
-    def check_value(self, value):
-        value = super(Int, self).check_value(value)
+    def _check_value(self, value):
         try:
             value = Int.interpret(value)
         except TypeError:
@@ -151,12 +222,11 @@ class Int(CfgAttr):
 
 
 class Shape(CfgAttr):
-    def __init__(self, default='__undefined__', dim=None):
-        super(Shape, self).__init__(default)
+    def __init__(self, default=UNDEFINED, dim=None):
         self.dim = dim
+        super(Shape, self).__init__(default)
 
-    def check_value(self, value):
-        value = super(Shape, self).check_value(value)
+    def _check_value(self, value):
         try:
             if not isinstance(value, (tuple, list)):
                 value = (value,)
@@ -170,10 +240,10 @@ class Shape(CfgAttr):
 
 
 class Float(CfgAttr):
-    def __init__(self, default='__undefined__', min=None, max=None):
-        super(Float, self).__init__(default)
+    def __init__(self, default=UNDEFINED, min=None, max=None):
         self.min = min
         self.max = max
+        super(Float, self).__init__(default)
 
     @staticmethod
     def interpret(value) -> float:
@@ -189,8 +259,7 @@ class Float(CfgAttr):
                 }[value[-1]]
         return float(value)
 
-    def check_value(self, value):
-        value = super(Float, self).check_value(value)
+    def _check_value(self, value):
         try:
             value = Float.interpret(value)
         except TypeError:
@@ -206,8 +275,7 @@ class Float(CfgAttr):
 
 
 class Str(CfgAttr):
-    def check_value(self, value):
-        value = super(Str, self).check_value(value)
+    def _check_value(self, value):
         try:
             return str(value)
         except TypeError:
@@ -215,8 +283,7 @@ class Str(CfgAttr):
 
 
 class Bool(CfgAttr):
-    def check_value(self, value):
-        value = super(Bool, self).check_value(value)
+    def _check_value(self, value):
         try:
             return bool(value)
         except TypeError:
@@ -224,7 +291,7 @@ class Bool(CfgAttr):
 
 
 class OneOf(CfgAttr):
-    def __init__(self, *values, default='__undefined__'):
+    def __init__(self, *values, default=UNDEFINED):
         self.values = []
         if values:
             for v in values:
@@ -234,12 +301,11 @@ class OneOf(CfgAttr):
                     self.values += [v]
             super(OneOf, self).__init__(default)
         else:
-            super(OneOf, self).__init__()
             self.values = None
             self.default = default
+            super(OneOf, self).__init__()
 
-    def check_value(self, value):
-        value = super(OneOf, self).check_value(value)
+    def _check_value(self, value):
         for v in self.values:
             if isinstance(v, CfgAttr):
                 try:
@@ -256,13 +322,12 @@ class OneOf(CfgAttr):
 
 
 class StrMap(CfgAttr):
-    def __init__(self, map: Mapping[str, any], default='__undefined__'):
-        super(StrMap, self).__init__(default)
+    def __init__(self, map: Mapping[str, any], default=UNDEFINED):
         self.map = map
+        super(StrMap, self).__init__(default)
 
-    def check_value(self, value):
+    def _check_value(self, value):
         try:
-            value = super(StrMap, self).check_value(value)
             return self.map[value]
         except KeyError:
             raise InvalidCfgAttr(f"{value} is invalid for attribute {self.name} "
@@ -281,39 +346,50 @@ class Obj(CfgAttr):
             self.shortcut = shortcut
             super(Obj, self).__init__(default)
         else:
-            super(Obj, self).__init__()
-            self.default = default
             self.shortcut = shortcut
             self.type = None
+            super(Obj, self).__init__()
+            self.default = default
 
-    def check_value(self, value):
-        if not isinstance(value, Mapping):
-            cfg = CfgDict.from_dict(value)
-            value = self.type.from_cfg(cfg)
+    def __repr__(self):
+        return f"Cfg.obj(type={self.type}, shortcut={self.shortcut})"
+
+    def _check_value(self, value):
+        if isinstance(value, Mapping):
+            value = self.type.from_cfg(value)
         elif not isinstance(value, self.type):
+            if self.shortcut is None:
+                raise InvalidCfgAttr(f"{value} is invalid for attribute {self.name}.")
             obj = self.type()
             obj[self.shortcut] = value
             value = obj
-        return super(Obj, self).check_value(value)
+        return value
 
 
 class Any(CfgAttr):
     pass
 
 
-def _type2attr(type, default='__undefined__'):
-    if issubclass(type, CfgAttr):
-        return type(default=default)
-    elif issubclass(type, CfgObj):
-        return Obj(type=type, default=default)
-    elif isinstance(type, UnionType):
-        return OneOf(type.__args__, default=default)
-    try:
-        return {
-            int: Int(default=default),
-            float: Float(default=default),
-            bool: Bool(default=default),
-            str: Str(default=default),
-        }[type]
-    except KeyError:
-        return Any(default=default)
+class Collection(CfgAttr):
+    def __init__(self, type, default_key=None, default=UNDEFINED):
+        self.type = type
+        self.default_key = default_key
+        super(Collection, self).__init__(default)
+
+    def _check_value(self, value):
+        if isinstance(value, list):
+            value = CfgDict.from_list(value, recursive=True)
+        if isinstance(value, Mapping):
+            single_value = False
+            if self.default_key:
+                try:
+                    value = self.type.from_cfg(value)
+                except (TypeError, InvalidCfgAttr):
+                    pass
+                else:
+                    value = {self.default_key: value}
+                    single_value = True
+            if not single_value:
+                value = {k: self.type.from_cfg(v) for k, v in value.items()}
+            value = CfgCollection(data=value, obj_type=self.type, default_key=self.default_key)
+        return value

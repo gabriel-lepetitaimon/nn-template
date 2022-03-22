@@ -130,10 +130,12 @@ class Cfg:
     bool = Bool
     strMap = StrMap
     obj = Obj
+    col = Collection
     shape = Shape
 
     Parser = CfgParser
     Obj = CfgObj
+    Collection = CfgCollection
     Dict = CfgDict
     Attr = CfgAttr
     InvalidAttr = InvalidCfgAttr

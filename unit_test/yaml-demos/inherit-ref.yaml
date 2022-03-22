@@ -1,7 +1,6 @@
 %INHERIT  versions.yaml
 ---
-list: 0
----
-first-version: 'foo1'
----
-second-version: 'foo2'
+# Filter versions inherited from versions.yaml to only keep those where document==1
+document: 1
+
+more-versions@: [a, b]

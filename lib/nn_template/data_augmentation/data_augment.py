@@ -18,7 +18,6 @@ INTERPOLATIONS = {
     'bits': cv2.INTER_BITS,
 }
 
-
 BORDER_MODES = {
     'constant': cv2.BORDER_CONSTANT,
     'replicate': cv2.BORDER_REPLICATE,
@@ -28,128 +27,83 @@ BORDER_MODES = {
 }
 
 
-class CfgBorderMode(Cfg.Obj):
-    type = Cfg.strMap(BORDER_MODES, 'constant')
+class BorderMode(Cfg.Obj):
+    mode = Cfg.strMap(BORDER_MODES, 'constant')
     value = Cfg.float(0)
 
 
-class CfgRotationAugment(Cfg.Obj):
-    enabled = Cfg.bool(True)
-    angle: RD = RandDistAttr([-180, 180], symetric=True)
+class Rotation(Cfg.Obj):
+    enabled: bool = True
+    angle = RandDistAttr([-180, 180], symetric=True)
     interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
-    border_mode: CfgBorderMode = Cfg.obj(shortcut='type', default='constant')
+    border_mode: BorderMode = Cfg.obj(shortcut='mode', default='constant')
 
 
-class CfgElasticAugment(Cfg.Obj):
+class Elastic(Cfg.Obj):
     enabled: bool = True
     alpha: float = 10
     sigma: float = 20
     alpha_affine: float = 50
     approximate: bool = False
     interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
-    border_mode: CfgBorderMode = Cfg.obj(shortcut='type', default='constant')
+    border_mode: BorderMode = Cfg.obj(shortcut='mode', default='constant')
 
 
-@Cfg.register_obj('data-augmentation')
+class Crop(Cfg.Obj):
+    patch_shape = Cfg.shape(None, dim=2)
+    padding = Cfg.shape(0, dim=2)
+
+
+@Cfg.register_obj('data-augmentation', collection='default')
 class CfgDataAugmentation(Cfg.Obj):
-    flip: bool = Cfg.bool(False)
-    patch: tuple[int, int] = Cfg.shape((0, 0), dim=2)
-    rotation: CfgRotationAugment = Cfg.obj(CfgRotationAugment, shortcut='enabled', default=False)
-    elastic: CfgElasticAugment = Cfg.obj(CfgElasticAugment, shortcut='enabled', default=False)
-    gamma: RD = RandDistAttr([-0.1, 0.1], symetric=True)
-    brightness: RD = RandDistAttr([-0.1, 0.1], symetric=True)
-    hue: RD = RandDistAttr([-20, 20], symetric=True)
-    saturation: RD = RandDistAttr([-20, 20], symetric=True)
+    flip = Cfg.oneOf(False, True, 'horizontal', 'vertical', default=False)
+    rotation: Rotation = Cfg.obj(default=False, shortcut='enabled')
+    elastic: Elastic = Cfg.obj(default=False, shortcut='enabled')
+    crop: Crop = Cfg.obj(default=None, shortcut='patch_shape')
 
+    gamma = RandDistAttr(default=None, symetric=True)
+    brightness = RandDistAttr(default=None, symetric=True)
+    contrast = RandDistAttr(default=None, symetric=True)
 
-def parse_data_augmentations(cfg: AttributeDict, rng=None):
-    if not 'data-augmentation' in cfg:
-        return {}
-    try:
-        rng_seed = int(cfg.training.seed)
-    except (TypeError, KeyError):
-        rng_seed = rng
-    cfg = cfg['data-augmentation'].copy()
-    cfg.update({'default': cfg.pop({'flip', 'rotation', 'elastic', 'gamma', 'brightness', 'hue', 'saturation'})})
-    return {k: parse_data_augmentation_cfg(v, rng=rng_seed) for k, v in cfg.items()}
+    hue = RandDistAttr(default=None, symetric=True)
+    saturation = RandDistAttr(default=None, symetric=True)
+    value = RandDistAttr(default=None, symetric=True)
 
+    seed: int = 1234
 
+    @property
+    def data_augment(self):
+        if hasattr(self, '_data_augment'):
+            return self._data_augment
+        da = DataAugment()
 
-def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
-    da = DataAugment(seed=rng)
+        match self.flip:
+            case True: da.flip()
+            case 'horizontal': da.flip_horizontal()
+            case 'vertical': da.flip_vertical()
 
+        if self.rotation.enabled:
+            rot = self.rotation
+            da.rotate(angle=rot.angle, interpolation=rot.interpolation,
+                      border_mode=rot.border_mode.mode, border_value=rot.border_mode.value)
 
-    flip = cfg.get('flip', False)
-    if flip is True:
-        da.flip()
-    elif flip=='horizontal':
-        da.flip_horizontal()
-    elif flip=='vertical':
-        da.flip_vertical()
-    elif isinstance(flip, AttributeDict):
-        flip_h, flip_v = flip.get('horizontal', 0), flip.get('vertical', 0)
-        if flip_h:
-            da.flip_horizontal(flip_h)
-        if flip_v:
-            da.flip_horizontal(flip_v)
+        if self.elastic.enabled:
+            ela = self.elastic
+            da.elastic_distortion(alpha=ela.alpha, alpha_affine=ela.alpha_affine, sigma=ela.sigma,
+                                  approximate=ela.approximate, interpolation=ela.interpolation,
+                                  border_mode=ela.border_mode.mode, border_value=ela.border_mode.value)
 
-    rotation = cfg.get('rotation', False)
-    if rotation is True:
-        da.rotate()
-    elif isinstance(rotation, (list, tuple)):
-        if len(rotation) != 2:
-            raise ValueError(f'Expected min and max value for gamma but got: {rotation}.')
-        da.rotate(angle=(rotation[0], rotation[1]))
-    elif isinstance(rotation, AttributeDict):
-        angle = rotation.get('angle', (-180, 180))
-        interpolation = INTERPOLATIONS[rotation.get('interpolation', 'linear')]
-        border_mode = rotation.get('border-mode', 'constant')
-        if isinstance(border_mode, (dict, AttributeDict)):
-            border_value = list(border_mode.values())[0]
-            border_mode = list(border_mode.keys())[0]
-        else:
-            border_value = 0
-        border_mode = BORDER_MODES[border_mode]
-        da.rotate(angle=angle, interpolation=interpolation, border_mode=border_mode, border_value=border_value)
+        if self.gamma or self.brightness or self.contrast:
+            da.color(brightness=self.brightness, gamma=self.gamma, contrast=self.contrast)
 
-    elastic = cfg.get('elastic', False)
-    if elastic is True:
-        da.elastic_distortion(alpha=10, sigma=20, alpha_affine=50)
-    elif isinstance(elastic, AttributeDict):
-        alpha = elastic.get('alpha', 10)
-        sigma = elastic.get('sigma', 20)
-        alpha_affine = elastic.get('alpha-affine', 20)
-        approximate = elastic.get('approximate', False)
-        interpolation = INTERPOLATIONS[elastic.get('interpolation', 'linear')]
-        border_mode = elastic.get('border-mode', 'constant')
-        if isinstance(border_mode, (dict, AttributeDict)):
-            border_value = list(border_mode.values())[0]
-            border_mode = list(border_mode.keys())[0]
-        else:
-            border_value = 0
-        border_mode = BORDER_MODES[border_mode]
-        da.elastic_distortion(alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
-                              interpolation=interpolation, border_mode=border_mode, border_value=border_value)
+        if self.hue or self.saturation or self.value:
+            da.hsv(hue=self.hue, saturation=self.saturation, value=self.value)
 
-    gamma = cfg.get('gamma', None)
-    if gamma is True:
-        gamma = (-0.1, 0.1)
-    brightness = cfg.get('brightness', None)
-    if brightness is True:
-        brightness = (-0.1, 0.1)
-    if brightness or gamma:
-        da.color(brightness=brightness, gamma=gamma)
+        if self.patch.patch_shape:
+            da.crop(shape=self.patch.patch_shape, padding=self.patch.padding)
 
-    hue = cfg.get('hue', None)
-    if hue is True:
-        hue = (-20, 20)
-    saturation = cfg.get('saturation', None)
-    if saturation is True:
-        saturation = (-20, 20)
-    if hue or saturation:
-        da.hsv(hue=hue, saturation=saturation)
+        return da
 
-    return da
 
 ########################################################################################################################
 #                   ---  DATA AUGMENTATION  ---
@@ -437,6 +391,16 @@ class DataAugment:
                                         random_state=random_state)
         return augment, RD.integers(1e8)
 
+    @augment_method('geometric')
+    def crop(self, shape, padding=(0, 0)):
+        padding = (s-p*2 for s, p in zip(shape, padding))
+
+        def augment(x, centerX, centerY):
+            center = (int(c*(s-p) + p//2)
+                      for s, p, c in zip(x.shape, padding, (centerY, centerX)))
+            return crop_pad(x, center, shape)
+        return augment, RD.float(1), RD.float(1)
+
     @augment_method('color')
     def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
         brightness = RD.constant(0) if brightness is None else RD.auto(brightness, symetric=True)
@@ -488,6 +452,27 @@ class DataAugment:
 
     def saturation(self, saturation=(-20, 20)):
         return self.hsv(saturation=saturation)
+
+
+def crop_pad(img, center, size):
+    y, x = center
+    h, w = size
+    half_x = size[1] // 2
+    odd_x = size[1] % 2
+    half_y = size[0] // 2
+    odd_y = size[0] % 2
+
+    y0 = int(max(0, half_y - y))
+    y1 = int(max(0, y - half_y))
+    h = int(min(h, y + half_y + odd_y) - y1)
+
+    x0 = int(max(0, half_x - x))
+    x1 = int(max(0, x - half_x))
+    w = int(min(w, x + half_x + odd_x) - x1)
+
+    r = np.zeros_like(img, shape=size+img.shape[2:])
+    r[y0:y0+h, x0:x0+w] = img[y1:y1+h, x1:x1+w]
+    return r
 
 
 ########################################################################################################################

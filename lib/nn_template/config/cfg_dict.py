@@ -92,19 +92,19 @@ class CursorCfgDict:
 
 
 class CfgDict(dict):
-    @staticmethod
-    def from_dict(d, recursive=False, read_marks=False):
-        if isinstance(d, list) and all(isinstance(_, dict) and len(_) == 1 for _ in d):
-            tmp_d = d
-            d = {}
-            for _ in tmp_d:
-                k0 = next(iter(_.keys()))
-                d[k0] = _[k0]
-        if isinstance(d, CfgDict):
-            return d
-        elif isinstance(d, dict):
-            r = CfgDict()
-            for k, v in d.items():
+    @classmethod
+    def from_dict(cls, data, recursive=False, read_marks=False, **kwargs):
+        if data is None:
+            return cls(**kwargs)
+        if isinstance(data, cls):
+            return data
+        if isinstance(data, dict):
+            r = cls(**kwargs)
+            if isinstance(data, CfgDict):
+                r.child_mark = data.child_mark
+                r.mark = data.mark
+
+            for k, v in data.items():
                 if read_marks:
                     if k == '__mark__':
                         r.mark = v
@@ -112,13 +112,24 @@ class CfgDict(dict):
                     elif k == '__child_marks__':
                         r.child_mark = v
                         continue
-                if is_dict(v) and recursive:
-                    if isinstance(v, CfgDict) and v.mark is not None:
-                        r.child_mark[str(k)] = v.mark
-                    v = CfgDict.from_dict(v, recursive=True, read_marks=read_marks)
+                if recursive:
+                    if isinstance(v, list):
+                        v = CfgDict.from_list(v, recursive=True, read_marks=read_marks)
+                    elif is_dict(v):
+                        if isinstance(v, CfgDict) and v.mark is not None:
+                            r.child_mark[str(k)] = v.mark
+                        v = CfgDict.from_dict(v, recursive=True, read_marks=read_marks)
                 r[str(k)] = v
             return r
-        return d
+        return data
+
+    @classmethod
+    def from_list(cls, data, recursive=False, read_marks=False, **kwargs):
+        marks_set = {'__mark__', '__child_marks__'} if read_marks else set()
+        if not all(isinstance(_, dict) and len(set(_.keys())-marks_set) == 1 for _ in data):
+            return data
+        data = {list(_.keys())[0]: list(_.values())[0] for _ in data}
+        return cls.from_dict(data, recursive=recursive, read_marks=read_marks, **kwargs)
 
     def __init__(self, data: Dict[str, any] = None, parent=None):
         super(CfgDict, self).__init__()
@@ -245,7 +256,7 @@ class CfgDict(dict):
         return root, abs_path
 
     def get_mark(self, path):
-        root, path = self.abs_path(path, check_exists=True)
+        root, path = self.abs_path(path)
 
         if len(path) == 0:
             return root.mark
@@ -368,8 +379,10 @@ class CfgDict(dict):
         if isinstance(__m, CfgDict):
             self.child_mark.update(__m.child_mark)
         for k, v in __m.items():
-            if is_dict(v) and not isinstance(v, CfgDict):
+            if isinstance(v, Mapping) and not isinstance(v, CfgDict):
                 v = CfgDict.from_dict(v, recursive=True)
+            elif isinstance(v, list):
+                v = CfgDict.from_list(v, recursive=True)
             if k in self and isinstance(self[k], CfgDict):
                 self[k].update(v)
             else:
@@ -459,3 +472,28 @@ class CfgDict(dict):
         if isinstance(value, tuple) and not isinstance(item, tuple):
             return item in value
         return item == value
+
+
+class CfgCollection(CfgDict):
+    def __init__(self, obj_type, data=None, default_key=None, parent=None):
+        self._default_key = default_key
+        self.obj_type = obj_type
+        super(CfgCollection, self).__init__(data, parent=parent)
+
+    def __setitem__(self, key, value):
+        if not isinstance(value, self.obj_type):
+            try:
+                mark = self.get_mark(key)
+            except KeyError:
+                mark = None
+
+            from .cfg_object import CfgObj
+            if issubclass(self.obj_type, CfgObj) and isinstance(value, dict):
+                value = self.obj_type.from_cfg(value, mark=mark)
+            else:
+                from .cfg_parser import ParseError
+                raise ParseError(f"Item type ({type(value)} doesn't match Collection type ({self.obj_type})", mark)
+        return super(CfgCollection, self).__setitem__(key, value)
+
+    def default(self):
+        return None if self._default_key is None else self.get(self._default_key, None)

@@ -1,5 +1,5 @@
 import numpy as np
-from ..config import Cfg
+from ..config.cfg_object import CfgAttr, InvalidCfgAttr
 
 
 class RandomDistribution:
@@ -12,7 +12,7 @@ class RandomDistribution:
         return self._f(rng=rng, shape=shape, **self._kwargs)
 
     def __repr__(self):
-        return f"RandomDistribution.{self._name}(**{self._kwargs})"
+        return f"RandomDistribution.{self._name}({', '.join([str(k)+'='+repr(v) for k,v in self._kwargs.items()])})"
 
     def __getattr__(self, item):
         if item in self._kwargs:
@@ -45,7 +45,7 @@ class RandomDistribution:
                 return RandomDistribution.uniform(*info)
             elif len(info) == 1:
                 return RandomDistribution.uniform(low=-info[0], high=+info[0])
-        elif isinstance(info, (float, int)):
+        elif isinstance(info, (float, int)) and info is not True and info is not False:
             if symetric:
                 return RandomDistribution.uniform(low=-info, high=info)
             else:
@@ -117,14 +117,13 @@ class RandomDistribution:
         return RandomDistribution(f, 'randint', low=low, high=high, dtype=dtype)
 
 
-class RandDistAttr(Cfg.Attr):
+class RandDistAttr(CfgAttr):
     def __init__(self, default='__undefined__', symetric=False):
-        super(RandDistAttr, self).__init__(default=default)
         self.symetric = symetric
+        super(RandDistAttr, self).__init__(default=default)
 
-    def check_value(self, value):
-        value = super(RandDistAttr, self).check_value(value)
+    def _check_value(self, value):
         try:
             return RandomDistribution.auto(value, symetric=self.symetric)
         except ValueError as e:
-            raise Cfg.InvalidAttr(str(e))
+            raise InvalidCfgAttr(str(e))
