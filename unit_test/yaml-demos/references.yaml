@@ -3,11 +3,15 @@ references:
     absolute-ref2: $interesting.stuff
     relative-ref1: $..foo
     relative-ref2: $.absolute-ref2.elem2
+    dict-ref:
+        $: interesting.stuff
+        elem2: 'not FOO 2'
 
 interesting:
-    word: 'cool'
     stuff:
         elem1: 'FOO 1'
         elem2: 'FOO 2'
+
+interesting.word: 'cool'
 
 foo: 'foo value'

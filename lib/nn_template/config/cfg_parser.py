@@ -1,12 +1,11 @@
 import os
-from itertools import product
 from yaml import SafeLoader
 from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
 import numpy as np
 
-from .cfg_dict import CfgDict, CfgCollection
-from .cfg_object import CfgObj, UNDEFINED, CfgCollectionType
+from .cfg_dict import CfgDict
+from .cfg_object import UNDEFINED, CfgCollectionType
 
 
 _registered_cfg_object = {}
@@ -145,8 +144,20 @@ class CfgParser:
 
         def search_resolve_refs(node):
             for cursor in node.walk_cursor():
+                k = cursor.name
                 v = cursor.value
-                if isinstance(v, str) and v.startswith('$'):
+                if k == "$":
+                    try:
+                        v = resolve(v, cursor.parent)
+                    except KeyError:
+                        raise ParseError(f'Unknown reference to "{v}"', cursor.mark) from None
+                    if not isinstance(v, CfgDict):
+                        raise ParseError(f'Invalid reference to populate {cursor.name}: '
+                                         f'"{v}" is not a dictionary', cursor.mark) from None
+                    v = v.merge(cursor.parent)
+                    cursor.parent.update(v)
+                    del cursor.parent['$']
+                elif isinstance(v, str) and v.startswith('$'):
                     try:
                         cursor.value = resolve(v[1:], cursor.parent)
                     except KeyError:

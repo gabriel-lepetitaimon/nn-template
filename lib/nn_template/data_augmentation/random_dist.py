@@ -37,10 +37,17 @@ class RandomDistribution:
         :rtype: RandomDistribution
         """
         if isinstance(info, str):
-            if '±' in info:
-                mean, std = info.split('±')
-                return RandomDistribution.normal(float(mean), float(std))
-        elif isinstance(info, (tuple, list)):
+            try:
+                if '±' in info:
+                    mean, std = info.split('±')
+                    if mean == '':
+                        mean = 0
+                    return RandomDistribution.normal(interpret_float(mean), interpret_float(std))
+                else:
+                    info = interpret_float(info)
+            except TypeError:
+                pass
+        if isinstance(info, (tuple, list)):
             if len(info) == 2:
                 return RandomDistribution.uniform(*info)
             elif len(info) == 1:
@@ -77,7 +84,7 @@ class RandomDistribution:
         return RandomDistribution(f, 'uniform', low=low, high=high)
 
     @staticmethod
-    def normal(mean=0, std=1):
+    def normal(mean: float = 0, std: float = 1):
         def f(rng: np.random.RandomState, shape, mean, std):
             return rng.normal(loc=mean, scale=std, size=shape)
         return RandomDistribution(f, 'normal', mean=mean, std=std)
@@ -127,3 +134,26 @@ class RandDistAttr(CfgAttr):
             return RandomDistribution.auto(value, symetric=self.symetric)
         except ValueError as e:
             raise InvalidCfgAttr(str(e))
+
+
+def interpret_float(value) -> float:
+    if isinstance(value, str):
+        value = value.strip()
+        if value.endswith('%'):
+            value = float(value[:-1])/100
+        elif value.endswith('‰'):
+            value = float(value[:-1])/100
+        elif value.endswith(tuple('TGMkmµn')):
+            value = float(value[:-1])*{
+                'T': 1e12, 'G': 1e9, 'M': 1e6, 'k': 1e3, 'm': 1e-3, 'µ': 1e-6, 'n': 1e-9
+            }[value[-1]]
+    return float(value)
+
+
+def interpret_int(value) -> int:
+    if isinstance(value, str):
+        if value.endswith(tuple('TGMk')):
+            value = float(value[:-1])*{
+                'T': 1e12, 'G': 1e9, 'M': 1e6, 'k': 1e3
+            }[value[-1]]
+    return int(value)

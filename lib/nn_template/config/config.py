@@ -123,15 +123,17 @@ def set_env_var(cfg):
 
 
 class Cfg:
-    int = Int
-    float = Float
-    str = Str
-    oneOf = OneOf
-    bool = Bool
-    strMap = StrMap
-    obj = Obj
-    col = Collection
-    shape = Shape
+    int = IntAttr
+    float = FloatAttr
+    str = StrAttr
+    oneOf = OneOfAttr
+    bool = BoolAttr
+    strMap = StrMapAttr
+    obj = ObjAttr
+    collection = CollectionAttr
+    multi_type_collection = MultiTypeCollectionAttr
+    shape = ShapeAttr
+    ref = CollectionRefAttr
 
     Parser = CfgParser
     Obj = CfgObj

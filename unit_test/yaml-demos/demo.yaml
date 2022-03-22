@@ -1,58 +1,48 @@
 experiment:
-    name: ""
-    exp: ""
-    (sub): ""
+    name: SteeredCNN-av
+    exp: RotAug
+    (sub): base:none
     (id): auto
     (tags):
         ...
-
 
 ###########################################################
 #                    ---   TASK   ---                    #
 ###########################################################
 task:
     type: img-seg
-    optimize: max(val-acc) ... # (eval?)
-    n-classes: binary
+    metrics: kappa, acc, sen, spe, iou, roc
+    optimize: val-kappa
+    (optimize-mode): max
+    (n-classes): binary
 
 
 ###########################################################
 #                    ---   MODEL   ---                    #
 ###########################################################
 model:
-    architecture: 'unet'
-    backbone: 'resnet'
-    pretrained: True
-    batchnorm: True
+    architecture: 'Unet'
+    encoder_name: 'resnet34'
+    encoder_weights: 'imagenet'
+    # See https://smp.readthedocs.io/en/latest/models.html
 
 
 ###########################################################
 #                   ---   TRAINING   ---                  #
 ###########################################################
 training:
-    loss:
-        type*: cross-entropy #(eval?)
-        (class-weight): False
-        (pixel-weight): False
-        (smooth-label): False
+    loss:  cross-entropy #(eval?)
 
     optimizer:
-        type*: Adam
+        (type): Adam
         (weight_decay): 0
         (beta): 0.9       # coefficients used for computing running averages of gradient
         (beta_sqr): 0.999 # and its square
         (amsgrad): True
 
-        lr:
-            initial*: 1e-3
-            (decay): #default: False
-                (factor): 0 #  is disabled
-                (monitor): $task.optimize
-                (patience): 1 # parse 1epoch 100iteration
-                (min-delta): 1e-3
+        lr: 1e-3
 
     minibatch: 8
-    drop-out: 0
     max-epoch: 30
     seed: 1234
 
@@ -66,32 +56,34 @@ datasets:
         y: "{{y}} > 1"
         mask: "{{y}} > 0"
 
-
     train:
-        type: ImageFolders
-        paths:
-            x: '/PATH/train/raw/{{name}}.png'
-            y: '/PATH//train/gt/{{name}}.png'
-        augment: True
+        source: 'MESSIDOR-train'
+        augment: default
+        augment-factor: 2
 
     validate:
-        type: ImageFolders
-        paths:
-            x: '/PATH/val/raw/{{name}}.png'
-            y: '/PATH//val/gt/{{name}}.png'
+        source: 'MESSIDOR-val'
+        cache: True
 
     test:
-        - "DRIVE":
-            type: ImageFolders
-            paths:
-                x: '/PATH/test/raw/{{name}}.png'
-                y: '/PATH//test/gt/{{name}}.png'
-        - "MESSIDOR":
-              type: ImageFolders
-              paths:
-                  x: '/PATH/test/raw/{{name}}.png'
-                  y: '/PATH//test/gt/{{name}}.png'
+        source: 'MESSIDOR-test'
+        cache: True
 
+    sources:
+        - MESSIDOR-train:
+              type: ImageFolders
+              path-prefix: 'PATH/train'
+              paths:
+                  x: 'raw/{{name}}.png'
+                  y: 'gt/{{name}}.png'
+
+        - MESSIDOR-val:
+              $: ..MESSIDOR-train
+              path-prefix: 'PATH/val'
+
+        - MESSIDOR-test:
+              $: ..MESSIDOR-train
+              path-prefix: 'PATH/test'
 
 ###########################################################
 #              ---   DATA-AUGMENTATIONS   ---             #
@@ -100,18 +92,15 @@ data-augmentation:
     default:
         flip: True
         rotation: True
-            #angle: [-180, 180]
-            #interpolation: 'linear'
-            #border-mode: {constant: 0}
         elastic:
             alpha: 10
             sigma: 20
             alpha-affine: 50
+        crop: 512
 
-        gamma: null # [-0.1, 0.1]
-        brightness: null # [-0.1, 0.1]
-        hue: null # [-20, 20]
-        saturation: null # [-20, 20]
+        # gamma: ±0.2
+        # hue: ±20
+        # saturation: ±20
 
 
 ###########################################################
@@ -120,4 +109,4 @@ data-augmentation:
 hardware:
     num-worker: auto
     half-precision: False
-    minibatch-splits: 1
+    minibatch-splits: 2

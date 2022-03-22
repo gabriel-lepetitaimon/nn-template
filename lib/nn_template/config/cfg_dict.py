@@ -175,10 +175,10 @@ class CfgDict(dict):
         return roots[-1] if roots else self
 
     def path(self):
-        return tuple(_.name for _ in reversed(self.roots()))
+        return tuple(_.name for _ in reversed(self.roots()[:-1]))
 
     @property
-    def full_name(self):
+    def fullname(self):
         return None if self._parent is None else '.'.join(self.path()+(self.name,))
 
     def to_dict(self, flatten_path=False):
@@ -217,15 +217,15 @@ class CfgDict(dict):
                 if '' in path and self._parent is not None:
                     roots = self.roots()
                     root = roots[-1]
-                    path = list(reversed(roots[:-1]))+[self.name]+path
+                    path = [_.name for _ in reversed(roots[:-1])] + [self.name] + path
 
             elif root is not self:
                 roots = self.roots()
                 try:
                     id_root = roots.index(root)+1
                 except ValueError:
-                    raise ValueError(f'"{root.full_name}" is not a parent of "{self.full_name}"') from None
-                path = list(reversed(roots[:id_root-1]))+[self.name]+path
+                    raise ValueError(f'"{root.fullname}" is not a parent of "{self.fullname}"') from None
+                path = [_.name for _ in reversed(roots[:id_root-1])] + [self.name] + path
 
             abs_path = []
             for p in path:
@@ -234,7 +234,7 @@ class CfgDict(dict):
                 elif len(abs_path):
                     abs_path.pop()
                 else:
-                    raise KeyError(f'Impossible to reach "{rel_path}" from "{self.full_name}":\n'
+                    raise KeyError(f'Impossible to reach "{rel_path}" from "{self.fullname}":\n'
                                    f'Too many up in the hierarchy.')
         else:
             abs_path = path
@@ -305,7 +305,7 @@ class CfgDict(dict):
 
         r = root
         for i, it in enumerate(item):
-            error = KeyError(f'Invalid item: {".".join(item[:i])}.')
+            error = KeyError(f'Invalid item: "{".".join(item[:i+1])}".')
             if not isinstance(r, CfgDict):
                 raise error
             try:
@@ -486,14 +486,27 @@ class CfgCollection(CfgDict):
                 mark = self.get_mark(key)
             except KeyError:
                 mark = None
-
-            from .cfg_object import CfgObj
-            if issubclass(self.obj_type, CfgObj) and isinstance(value, dict):
-                value = self.obj_type.from_cfg(value, mark=mark)
-            else:
-                from .cfg_parser import ParseError
-                raise ParseError(f"Item type ({type(value)} doesn't match Collection type ({self.obj_type})", mark)
+            value = self._to_obj_type(value, mark)
         return super(CfgCollection, self).__setitem__(key, value)
 
     def default(self):
         return None if self._default_key is None else self.get(self._default_key, None)
+
+    def _to_obj_type(self, value, mark=None):
+        if hasattr(self.obj_type, 'from_cfg') and isinstance(value, dict):
+            return self.obj_type.from_cfg(value, mark)
+        else:
+            try:
+                self.obj_type(value)
+            except TypeError:
+                from .cfg_parser import ParseError
+                raise ParseError(f"Item type ({type(value)} doesn't match Collection type ({self.obj_type})", mark)
+
+
+class CfgCollectionRef:
+    def __init__(self, key, collection):
+        self.key = key
+        self.collection = collection
+
+    def ref(self):
+        return self.collection[self.key]
