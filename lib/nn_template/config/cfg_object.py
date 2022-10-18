@@ -1,6 +1,7 @@
-import weakref
 from collections.abc import Mapping
 from types import UnionType
+from typing import Callable
+import weakref
 
 from .cfg_dict import CfgDict, CfgCollection
 
@@ -100,6 +101,16 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
         super(ObjCfg, self).__init__(data=data, parent=parent)
         self._attr_values = {}
 
+    def init_after_populate(self):
+        pass
+
+    def _init_after_populate(self):
+        self.init_after_populate()
+
+        for c in self.values():
+            if isinstance(c, ObjCfg):
+                c._init_after_populate()
+
     def __setitem__(self, key, value):
         attr_name = key.replace('-', '_')
         if isinstance(attr_name, str) and attr_name in self.__attr__.keys():
@@ -112,7 +123,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
                 mark = None
 
             try:
-                attr_value = attr.check_value(value)
+                attr_value = attr.check_value(value, cfg_dict=self)
             except (InvalidCfgAttr, ParseError) as e:
                 raise ParseError(str(e), mark) from None
             if isinstance(attr_value, CfgDict):
@@ -133,8 +144,15 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
 
     @classmethod
     def from_cfg(cls, cfg_dict: dict[str, any], mark=None):
+        obj = cls.recursive_from_cfg(cfg_dict, mark)
+        obj._init_after_populate()
+        return obj
+
+    @classmethod
+    def recursive_from_cfg(cls, cfg_dict: dict[str, any], mark=None):
         r = cls()
         r.update(cfg_dict)
+        r._init_after_populate()
         if mark is not None:
             r.mark = mark
         try:
@@ -177,18 +195,20 @@ class CfgAttr:
         if default is not None and default is not UNDEFINED:
             default = self.check_value(default)
         self.default = default
-        self._cfg_obj = None
+        self._parent_cfg_class = None
 
     def __set_name__(self, owner, name):
         self.name = name
         if name not in owner.__attr__:
             owner.__attr__[name] = self
-        self._cfg_obj = weakref.ref(owner)
+        self._parent_cfg_class = owner
 
     def __set__(self, instance, value):
         raise AttributeError('Attempt to modify a read-only attribute.')
 
     def __get__(self, instance, owner):
+        if instance is None:
+            return self
         try:
             return instance._attr_values[self.name]
         except KeyError as e:
@@ -196,14 +216,14 @@ class CfgAttr:
                 raise AttributeError(f'Attribute {self.name} not yet specified.') from None
             return self.default
 
-    def check_value(self, value):
+    def check_value(self, value, cfg_dict: CfgDict | None = None):
         if self.nullable and value is None:
             return None
         if self._checker is not None:
-            value = self._checker(value)
-        return self._check_value(value)
+            value = self._checker(value, cfg_dict)
+        return self._check_value(value, cfg_dict)
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         return value
 
     def checker(self, func):
@@ -214,11 +234,12 @@ class CfgAttr:
         return func
 
     @property
-    def cfg_obj(self) -> ObjCfg:
-        return self._cfg_obj()
+    def parent_cfg_class(self) -> MetaCfgObj:
+        return self._parent_cfg_class
 
+    @property
     def fullname(self):
-        return '.'.join(self.cfg_obj.path() + (self.cfg_obj.name, self.name))
+        return self.parent_cfg_class.__name__ + '.' + self.name
 
 
 class IntAttr(CfgAttr):
@@ -236,7 +257,7 @@ class IntAttr(CfgAttr):
                 }[value[-1]]
         return int(value)
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             value = IntAttr.interpret(value)
         except TypeError:
@@ -251,11 +272,11 @@ class IntAttr(CfgAttr):
 
 
 class ShapeAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, dim=None):
+    def __init__(self, default=UNDEFINED, dim=None, nullable=None):
         self.dim = dim
-        super(ShapeAttr, self).__init__(default)
+        super(ShapeAttr, self).__init__(default, nullable=nullable)
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             if not isinstance(value, (tuple, list)):
                 value = (value,)
@@ -288,7 +309,7 @@ class FloatAttr(CfgAttr):
                 }[value[-1]]
         return float(value)
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             value = FloatAttr.interpret(value)
         except TypeError:
@@ -304,7 +325,7 @@ class FloatAttr(CfgAttr):
 
 
 class StrAttr(CfgAttr):
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             return str(value)
         except TypeError:
@@ -312,7 +333,7 @@ class StrAttr(CfgAttr):
 
 
 class BoolAttr(CfgAttr):
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             return bool(value)
         except TypeError:
@@ -334,11 +355,11 @@ class OneOfAttr(CfgAttr):
             self.default = default
             super(OneOfAttr, self).__init__()
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         for v in self.values:
             if isinstance(v, CfgAttr):
                 try:
-                    value = v.check_value(value)
+                    value = v.check_value(value, cfg_dict=cfg_dict)
                 except InvalidCfgAttr:
                     pass
                 else:
@@ -355,7 +376,7 @@ class StrMapAttr(CfgAttr):
         self.map = map
         super(StrMapAttr, self).__init__(default)
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             return self.map[value]
         except KeyError:
@@ -383,9 +404,9 @@ class ObjAttr(CfgAttr):
     def __repr__(self):
         return f"Cfg.obj(type={self.obj_type}, shortcut={self.shortcut})"
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, Mapping):
-            value = self.obj_type.from_cfg(value)
+            value = self.obj_type.recursive_from_cfg(value)
         elif not isinstance(value, self.obj_type):
             if self.shortcut is None:
                 raise InvalidCfgAttr(f"{value} is invalid for attribute {self.name}.")
@@ -408,11 +429,11 @@ class CollectionAttr(CfgAttr):
     def obj_types(self):
         return self._obj_types
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
         if not isinstance(value, dict):
-            raise InvalidCfgAttr(f'Impossible to populate collection {self.fullname()}. '
+            raise InvalidCfgAttr(f'Impossible to populate collection {self.fullname}. '
                                  f'The provided value is not a dictionary.')
         value = CfgCollection(data=value, obj_types=self.obj_types)
         return value
@@ -428,11 +449,11 @@ class MultiTypeCollectionAttr(CollectionAttr):
     def obj_types(self):
         return list(self._obj_types.values())
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
         if not isinstance(value, dict):
-            raise InvalidCfgAttr(f'Impossible to populate collection {self.fullname()}. '
+            raise InvalidCfgAttr(f'Impossible to populate collection {self.fullname}. '
                                  f'The provided value is not a dictionary.')
         value = CfgCollection(data=value, obj_types=self._obj_types, type_key=self.type_key)
         return value
@@ -444,33 +465,38 @@ class CollectionRefAttr(CfgAttr):
         self.obj_types = obj_types
         super(CollectionRefAttr, self).__init__(default)
 
-    @property
-    def collection(self) -> CfgCollection:
+    def collection(self, cfg_dict: CfgDict) -> CfgCollection:
         try:
             if self.collection_path.startswith('.'):     # Relative ref
-                collection = self.cfg_obj[self.collection_path[1:]]
+                collection = cfg_dict[self.collection_path[1:]]
             else:                       # Absolute ref
-                collection = self.cfg_obj.root()[self.collection_path]
+                collection = cfg_dict.root()[self.collection_path]
         except KeyError:
-            raise InvalidCfgAttr(f'Impossible to build the reference attribute {self.fullname()}:\n '
+            raise InvalidCfgAttr(f'Impossible to build the reference attribute {self.fullname}:\n '
                                  f'Unknown path "{self.collection_path}".')
         if not isinstance(collection, CfgCollection):
-            raise InvalidCfgAttr(f'Impossible to build the reference attribute {self.fullname()}:\n '
+            raise InvalidCfgAttr(f'Impossible to build the reference attribute {self.fullname}:\n '
                                  f'Attribute found at path "{self.collection_path}" is not a CfgCollection '
                                  f'but {type(collection).__name__}.')
         if self.obj_types is not None and set(self.obj_types) != set(self.obj_types):
-            raise InvalidCfgAttr(f'Impossible to build the reference attribute {self.fullname()}:\n '
+            raise InvalidCfgAttr(f'Impossible to build the reference attribute {self.fullname}:\n '
                                  f'The CfgCollection found at {self.collection_path} contains '
-                                 f'{collection.obj_types.__name__} instead of {self.obj_type.__name__}.')
+                                 f'{collection.obj_types.__name__} instead of {self.obj_types}.')
         return collection
 
-    def valid_refs(self):
-        return set(self.collection.keys())
+    def valid_refs(self, cfg_dict: CfgDict | None = None):
+        return set(self.collection(cfg_dict).keys())
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if not isinstance(value, str):
             raise InvalidCfgAttr(f'Reference key must be string not {type(value)}.')
-        valid_refs = self.valid_refs()
-        if value not in valid_refs:
-            raise InvalidCfgAttr(f'Unknown reference key "{value}". \nMust be one of {valid_refs}.')
-        return self.collection[value]
+
+        if cfg_dict:
+            referenced_collection = self.collection(cfg_dict)
+            try:
+                return referenced_collection[value]
+            except KeyError:
+                raise InvalidCfgAttr(f'Unknown reference key "{value}". \n'
+                                     f'Must be one of {referenced_collection.keys()}.')
+
+        return value

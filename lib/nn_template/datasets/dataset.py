@@ -19,6 +19,7 @@ class DatasetCfg(Cfg.Obj):
     augment: AugmentCfg = Cfg.obj()
 
 
+@Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
     fields = Cfg.collection(str)
     sources = DataSourcesAttr()
@@ -35,3 +36,8 @@ class Dataset(TorchDataset):
     def __init__(self):
         super(Dataset, self).__init__()
 
+    def __len__(self):
+        pass
+
+    def __getitem__(self, item):
+        pass

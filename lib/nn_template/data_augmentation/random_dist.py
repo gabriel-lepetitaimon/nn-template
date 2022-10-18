@@ -1,5 +1,5 @@
 import numpy as np
-from ..config.cfg_object import CfgAttr, InvalidCfgAttr
+from ..config.cfg_object import CfgAttr, InvalidCfgAttr, CfgDict
 
 
 class RandomDistribution:
@@ -129,7 +129,7 @@ class RandDistAttr(CfgAttr):
         self.symetric = symetric
         super(RandDistAttr, self).__init__(default=default)
 
-    def _check_value(self, value):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             return RandomDistribution.auto(value, symetric=self.symetric)
         except ValueError as e:

@@ -485,10 +485,10 @@ class CfgCollection(CfgDict):
 
         if type_key is None:
             self._obj_types = [obj_types] if isinstance(obj_types, type) else obj_types
-            assert isinstance(self.obj_types, list), "Invalid obj_types: should be list when type_key is not provided."
+            assert isinstance(self.obj_types, list), f"{type(self).__name__} Invalid obj_types: should be list when type_key is not provided."
             assert all(isinstance(_, type) for _ in self.obj_types)
         else:
-            assert isinstance(obj_types, Mapping), "Invalid obj_types: should be dict when type_key is provided."
+            assert isinstance(obj_types, Mapping), f"{type(self).__name__} Invalid obj_types: should be dict when type_key is provided."
             assert all(isinstance(_, str) for _ in obj_types.keys())
             assert all(isinstance(_, type) for _ in obj_types.values())
             self._obj_types = obj_types

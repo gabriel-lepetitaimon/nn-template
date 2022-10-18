@@ -439,11 +439,11 @@ class DataAugment:
         a_min = np.array([0, 0, 0], np.uint8)
         a_max = np.array([179, 255, 255], np.uint8)
 
-        def augment(x, h, s , v):
-            hsv = cv2.cvtColor(x, cv2.COLOR_BGR2HSV)
+        def augment(x, h, s, v):
+            hsv = cv2.cvtColor(x.astype(np.uint8)*255, cv2.COLOR_BGR2HSV)
             hsv = hsv + np.array([h, s, v])
             hsv[:, :, 0] = hsv[:, :, 0] % 179
-            hsv = np.clip(hsv, a_min=a_min, a_max=a_max).astype(np.uint8)
+            hsv = np.clip(hsv, a_min=a_min, a_max=a_max)
             return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
         return augment, hue, saturation, value
 

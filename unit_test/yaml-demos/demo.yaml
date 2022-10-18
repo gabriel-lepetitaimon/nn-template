@@ -73,15 +73,15 @@ datasets:
 
     sources:
         - MESSIDOR-train:
-              type: DataFiles
               path-prefix: 'PATH/train'
 
               data:
                   raw:
+                    type: ColorMap
                     path: 'raw'
                     resize: 1500
                   gt:
-                    type: label
+                    type: LabelMap
                     path: 'gt'
                     resize: 1500
 

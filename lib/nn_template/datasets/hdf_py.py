@@ -9,7 +9,7 @@ from ..config import Cfg
 from ..data_augmentation import DataAugment
 
 
-def create_generic_hdf_datasets(dataset_cfg: AttributeDict, file_path=None, seed=1234,
+def create_generic_hdf_datasets(dataset_cfg: Cfg.Dict, file_path=None, seed=1234,
                                 data_augmentations: Dict[str,DataAugment]=None):
     from .datasets import DEFAULT_DATA_PATH
     if file_path is None:
@@ -22,9 +22,9 @@ def create_generic_hdf_datasets(dataset_cfg: AttributeDict, file_path=None, seed
     return train, valid, test
 
 
-def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_path: str,
+def create_generic_hdf_dataset(datasets_cfg: Cfg.Dict, prefix: str, hdf_path: str,
                                seed, data_augmentations: Dict[str, DataAugment]):
-    cfg = AttributeDict.from_dict({
+    cfg = Cfg.Dict.from_dict({
         'dataset': 'all',
         'augment': False,
         'preload-in-RAM': prefix == 'validation',
@@ -42,7 +42,7 @@ def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_pat
         data_augmentations = None
         factor = 1
         augmented_fields = None
-    elif isinstance(cfg.augment, (AttributeDict, dict)):
+    elif isinstance(cfg.augment, (Cfg.Dict, dict)):
         unkown_fields = {k for k in cfg.augment.fields.keys() if k not in fields_mapping}
         if unkown_fields:
             raise ValueError(f'Unkown data field(s) {", ".join(unkown_fields)} in data augmentation specs of '
