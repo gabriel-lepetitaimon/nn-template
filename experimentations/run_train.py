@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, StochasticWeightAveraging
 from orion.client import report_objective
 import os
 import os.path as P
@@ -94,6 +94,9 @@ def run_train(**opt):
     else:
         earlystop = None
     callbacks += [LearningRateMonitor(logging_interval='epoch')]
+
+    if cfg.training.get('SWA', False):
+        callbacks += [StochasticWeightAveraging()]
 
     checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
     modelCheckpoints = {}

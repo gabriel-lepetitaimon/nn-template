@@ -20,7 +20,7 @@ def register_obj(path: str, collection=False):
             _registered_cfg_object[path] = cfg_obj
         else:
             default_key = collection if isinstance(collection, str) else None
-            _registered_cfg_object[path] = CfgCollectionType(obj_type=cfg_obj, default_key=default_key)
+            _registered_cfg_object[path] = CfgCollectionType(obj_types=cfg_obj, default_key=default_key)
         return cfg_obj
     return register
 

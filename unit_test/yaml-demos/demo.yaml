@@ -52,30 +52,38 @@ training:
 ###########################################################
 datasets:
     fields:
-        x: x
-        y: "{{y}} > 1"
-        mask: "{{y}} > 0"
+        x: raw
+        y: "{{gt}} > 1"
+        mask: "{{gt}} > 0"
 
     train:
         source: 'MESSIDOR-train'
-        augment: default
-        augment-factor: 2
+        augment:
+            augmentation: default
+            factor: 2
 
     validate:
         source: 'MESSIDOR-val'
         cache: True
 
     test:
-        source: 'MESSIDOR-test'
-        cache: True
+        - "test":
+            source: 'MESSIDOR-test'
+            cache: True
 
     sources:
         - MESSIDOR-train:
-              type: ImageFolders
+              type: DataFiles
               path-prefix: 'PATH/train'
-              paths:
-                  x: 'raw/{{name}}.png'
-                  y: 'gt/{{name}}.png'
+
+              data:
+                  raw:
+                    path: 'raw'
+                    resize: 1500
+                  gt:
+                    type: label
+                    path: 'gt'
+                    resize: 1500
 
         - MESSIDOR-val:
               $: ..MESSIDOR-train
@@ -96,7 +104,7 @@ data-augmentation:
             alpha: 10
             sigma: 20
             alpha-affine: 50
-        crop: 512
+        random-crop: 512
 
         # gamma: ±0.2
         # hue: ±20

@@ -27,39 +27,39 @@ BORDER_MODES = {
 }
 
 
-class BorderMode(Cfg.Obj):
+class BorderModeCfg(Cfg.Obj):
     mode = Cfg.strMap(BORDER_MODES, 'constant')
     value = Cfg.float(0)
 
 
-class Rotation(Cfg.Obj):
+class RotationCfg(Cfg.Obj):
     enabled: bool = True
     angle = RandDistAttr([-180, 180], symetric=True)
     interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
-    border_mode: BorderMode = Cfg.obj(shortcut='mode', default='constant')
+    border_mode: BorderModeCfg = Cfg.obj(shortcut='mode', default='constant')
 
 
-class Elastic(Cfg.Obj):
+class ElasticCfg(Cfg.Obj):
     enabled: bool = True
     alpha: float = 10
     sigma: float = 20
     alpha_affine: float = 50
     approximate: bool = False
     interpolation = Cfg.strMap(INTERPOLATIONS, 'linear')
-    border_mode: BorderMode = Cfg.obj(shortcut='mode', default='constant')
+    border_mode: BorderModeCfg = Cfg.obj(shortcut='mode', default='constant')
 
 
-class Crop(Cfg.Obj):
+class CropCfg(Cfg.Obj):
     patch_shape = Cfg.shape(None, dim=2)
     padding = Cfg.shape(0, dim=2)
 
 
 @Cfg.register_obj('data-augmentation', collection='default')
-class CfgDataAugmentation(Cfg.Obj):
+class DataAugmentationCfg(Cfg.Obj):
     flip = Cfg.oneOf(False, True, 'horizontal', 'vertical', default=False)
-    rotation: Rotation = Cfg.obj(default=False, shortcut='enabled')
-    elastic: Elastic = Cfg.obj(default=False, shortcut='enabled')
-    crop: Crop = Cfg.obj(default=None, shortcut='patch_shape')
+    rotation: RotationCfg = Cfg.obj(default=False, shortcut='enabled')
+    elastic: ElasticCfg = Cfg.obj(default=False, shortcut='enabled')
+    random_crop: CropCfg = Cfg.obj(default=None, shortcut='patch_shape')
 
     gamma = RandDistAttr(default=None, symetric=True)
     brightness = RandDistAttr(default=None, symetric=True)
@@ -99,8 +99,8 @@ class CfgDataAugmentation(Cfg.Obj):
         if self.hue or self.saturation or self.value:
             da.hsv(hue=self.hue, saturation=self.saturation, value=self.value)
 
-        if self.patch.patch_shape:
-            da.crop(shape=self.patch.patch_shape, padding=self.patch.padding)
+        if self.random_crop.patch_shape:
+            da.crop(shape=self.random_crop.patch_shape, padding=self.random_crop.padding)
 
         return da
 

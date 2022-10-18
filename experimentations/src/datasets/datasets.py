@@ -26,12 +26,12 @@ def load_dataset(cfg=None):
 
     if 'datasets' in cfg:
         data_augmentations = parse_data_augmentations(cfg)
-        if cfg.datasets.type == 'GenericHDF':
+        if cfg.datasets.obj_types == 'GenericHDF':
             from .generic_hdf import create_generic_hdf_datasets
             train, val, test = create_generic_hdf_datasets(cfg.datasets, data_path, cfg.get('training.seed', 1234),
                                                            data_augmentations)
         else:
-            raise ValueError(f'Invalid dataset type: cfg.dataset.type={cfg.dataset.type}')
+            raise ValueError(f'Invalid dataset type: cfg.dataset.type={cfg.dataset.obj_types}')
         trainD = DataLoader(train, pin_memory=True, shuffle=True, batch_size=batch_size,
                             num_workers=cfg.training['num-worker'] )
         validD = DataLoader(val, pin_memory=True, num_workers=6, batch_size=6)

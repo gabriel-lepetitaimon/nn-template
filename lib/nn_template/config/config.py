@@ -136,7 +136,7 @@ class Cfg:
     ref = CollectionRefAttr
 
     Parser = CfgParser
-    Obj = CfgObj
+    Obj = ObjCfg
     Collection = CfgCollection
     Dict = CfgDict
     Attr = CfgAttr

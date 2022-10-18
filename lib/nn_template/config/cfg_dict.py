@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Mapping, Dict
+from typing import Mapping, Dict, List
 from collections.abc import Iterable
 import weakref
 
@@ -383,7 +383,11 @@ class CfgDict(dict):
                 v = CfgDict.from_dict(v, recursive=True)
             elif isinstance(v, list):
                 v = CfgDict.from_list(v, recursive=True)
-            if k in self and isinstance(self[k], CfgDict):
+
+            force_replace = k.endswith('!')
+            if force_replace:
+                k = k[:-1]
+            if not force_replace and k in self and isinstance(self[k], CfgDict):
                 self[k].update(v)
             else:
                 self[k] = v
@@ -475,32 +479,72 @@ class CfgDict(dict):
 
 
 class CfgCollection(CfgDict):
-    def __init__(self, obj_type, data=None, default_key=None, parent=None):
+    def __init__(self, obj_types, data=None, default_key=None, type_key=None, parent=None):
         self._default_key = default_key
-        self.obj_type = obj_type
+        self.type_key = type_key
+
+        if type_key is None:
+            self._obj_types = [obj_types] if isinstance(obj_types, type) else obj_types
+            assert isinstance(self.obj_types, list), "Invalid obj_types: should be list when type_key is not provided."
+            assert all(isinstance(_, type) for _ in self.obj_types)
+        else:
+            assert isinstance(obj_types, Mapping), "Invalid obj_types: should be dict when type_key is provided."
+            assert all(isinstance(_, str) for _ in obj_types.keys())
+            assert all(isinstance(_, type) for _ in obj_types.values())
+            self._obj_types = obj_types
+
         super(CfgCollection, self).__init__(data, parent=parent)
 
     def __setitem__(self, key, value):
-        if not isinstance(value, self.obj_type):
-            try:
-                mark = self.get_mark(key)
-            except KeyError:
-                mark = None
-            value = self._to_obj_type(value, mark)
+        try:
+            mark = self.get_mark(key)
+        except KeyError:
+            mark = None
+        value = self._to_obj_type(value, mark)
         return super(CfgCollection, self).__setitem__(key, value)
+
+    @property
+    def obj_types(self):
+        return self._obj_types if self.type_key is None else list(self._obj_types.keys())
 
     def default(self):
         return None if self._default_key is None else self.get(self._default_key, None)
 
     def _to_obj_type(self, value, mark=None):
-        if hasattr(self.obj_type, 'from_cfg') and isinstance(value, dict):
-            return self.obj_type.from_cfg(value, mark)
+        if self.type_key is None:
+            return CfgCollection.to_type(self.obj_types, value, mark=mark)
         else:
+            return CfgCollection.match_type(self.obj_types, self.type_key, value, mark=mark)
+
+    @staticmethod
+    def match_type(obj_types: Mapping[str, type], type_key: str, value: any, mark=None):
+        from .cfg_parser import ParseError
+        t = value.get(type_key, None)
+        if t is None:
+            raise ParseError(f'Missing attribute {type_key} required to infer the object type', mark)
+        obj_type = obj_types.get(t, None)
+        if obj_type is None:
+            raise ParseError(f'Invalid value "{t}" for attribute {type_key}. '
+                             f'Should be one of {", ".join(obj_types.keys())}', mark)
+        return CfgCollection.to_type([obj_type], value, mark=mark)
+
+    @staticmethod
+    def to_type(obj_types: List[type], value: any, mark=None):
+        from .cfg_parser import ParseError
+        from .cfg_object import InvalidCfgAttr
+        for obj_type in obj_types:
             try:
-                self.obj_type(value)
-            except TypeError:
-                from .cfg_parser import ParseError
-                raise ParseError(f"Item type ({type(value)} doesn't match Collection type ({self.obj_type})", mark)
+                if hasattr(obj_type, 'from_cfg') and isinstance(value, dict):
+                    return obj_type.from_cfg(value, mark)
+                else:
+                    return obj_type(value)
+            except (TypeError, ParseError, InvalidCfgAttr):
+                continue
+
+        if len(obj_types) == 1:
+            raise ParseError(f"Item type ({type(value)} doesn't match Collection type ({obj_types[0]})", mark)
+        else:
+            raise ParseError(f"Item type ({type(value)} doesn't match any Collection type {obj_types}", mark)
 
 
 class CfgCollectionRef:
