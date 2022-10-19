@@ -219,6 +219,12 @@ class CfgAttr:
     def check_value(self, value, cfg_dict: CfgDict | None = None):
         if self.nullable and value is None:
             return None
+
+        from .optuna import OptunaHP
+        if isinstance(value, OptunaHP):
+            return value
+        if isinstance(value, str) and value.startswith("$optuna"):
+            return OptunaHP("test", value[8:])
         if self._checker is not None:
             value = self._checker(value, cfg_dict)
         return self._check_value(value, cfg_dict)

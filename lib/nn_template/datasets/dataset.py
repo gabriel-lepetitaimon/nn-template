@@ -22,7 +22,7 @@ class DatasetCfg(Cfg.Obj):
 @Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
     fields = Cfg.collection(str)
-    sources = DataSourcesAttr()
+    # sources = DataSourcesAttr()
 
     train: DatasetCfg = Cfg.obj(shortcut='source')
     validate: DatasetCfg = Cfg.obj(shortcut='source')

@@ -101,10 +101,11 @@ data-augmentation:
         flip: True
         rotation: True
         elastic:
-            alpha: 10
+            alpha: $optuna.float()
             sigma: 20
             alpha-affine: 50
         random-crop: 512
+
 
         # gamma: ±0.2
         # hue: ±20

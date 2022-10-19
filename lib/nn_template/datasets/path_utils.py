@@ -1,10 +1,21 @@
 import os
 from copy import copy
 
+import parse
+
 
 class PathVar:
     def __init__(self, name, format=None):
         self.name = name
+        if isinstance(format, str):
+            parser = parse.compile('{:'+format+'}')
+            def format_value(v):
+                v = parser.parse(v)
+                if v is None:
+                    raise ValueError()
+                return v[0]
+            format = format_value
+
         self.format = format
 
     def __str__(self):
@@ -14,14 +25,16 @@ class PathVar:
     def from_str(value: str):
         if ':' in value:
             name, format = value.split(':', 1)
+
             return PathVar(name.strip(), format.strip())
         else:
             return PathVar(value.strip())
 
     def parse(self, v):
         # TODO check format
-        v = self.format(v)
-        return
+        if self.format:
+            v = self.format(v)
+        return v
 
 
 class PathToken(str):
@@ -30,7 +43,7 @@ class PathToken(str):
 
 
 class PathTemplate:
-    def __init__(self, path_template: str):
+    def __init__(self, path_template: str, format_output='dict'):
         path = []
         self.vars = {}
         for i, p in enumerate(path_template.split('{')):
@@ -49,6 +62,7 @@ class PathTemplate:
                 if token:
                     path += [PathToken(token)]
         self.path = path
+        self.format_output = format_output
 
     def parse_filename(self, path: str):
         path = copy(path)
@@ -127,4 +141,15 @@ class PathTemplate:
             else:
                 var['fullpath'] = os.path.join(dir, f)
                 vars.append(var)
-        return vars
+        return self.post_process(vars)
+
+    def post_process(self, vars):
+        match self.format_output:
+            case "dict":
+                return vars
+            case "pandas":
+                import pandas as pd
+                if vars:
+                    return pd.DataFrame(vars).set_index([_ for _ in vars[0].keys() if _ != 'fullpath'])['fullpath']
+                else:
+                    return pd.DataFrame()
