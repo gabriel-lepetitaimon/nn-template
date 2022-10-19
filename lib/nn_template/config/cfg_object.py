@@ -1,12 +1,9 @@
 from collections.abc import Mapping
 from types import UnionType
-from typing import Callable
 import weakref
 
-from .cfg_dict import CfgDict, CfgCollection
-
-
-UNDEFINED = '__undefined__'
+from .cfg_dict import CfgDict, CfgCollection, UNDEFINED, HYPER_PARAMETER
+from .hyperparameter_optimization import HyperParameter
 
 
 class InvalidCfgAttr(Exception):
@@ -122,17 +119,20 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
             except KeyError:
                 mark = None
 
-            try:
-                attr_value = attr.check_value(value, cfg_dict=self)
-            except (InvalidCfgAttr, ParseError) as e:
-                raise ParseError(str(e), mark) from None
-            if isinstance(attr_value, CfgDict):
-                if isinstance(value, CfgDict):
-                    value = attr_value
-                else:
-                    attr_value.mark = mark
-                    attr_value._parent = weakref.ref(self)
-                    attr_value._name = key
+            if isinstance(value, HyperParameter) or (isinstance(value, str) and value.startswith('~')):
+                attr_value = HYPER_PARAMETER
+            else:
+                try:
+                    attr_value = attr.check_value(value, cfg_dict=self)
+                except (InvalidCfgAttr, ParseError) as e:
+                    raise ParseError(str(e), mark) from None
+                if isinstance(attr_value, CfgDict):
+                    if isinstance(value, CfgDict):
+                        value = attr_value
+                    else:
+                        attr_value.mark = mark
+                        attr_value._parent = weakref.ref(self)
+                        attr_value._name = key
             self._attr_values[attr_name] = attr_value
         super(ObjCfg, self).__setitem__(key, value)
 
@@ -144,12 +144,6 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
 
     @classmethod
     def from_cfg(cls, cfg_dict: dict[str, any], mark=None):
-        obj = cls.recursive_from_cfg(cfg_dict, mark)
-        obj._init_after_populate()
-        return obj
-
-    @classmethod
-    def recursive_from_cfg(cls, cfg_dict: dict[str, any], mark=None):
         r = cls()
         r.update(cfg_dict)
         r._init_after_populate()
@@ -209,6 +203,7 @@ class CfgAttr:
     def __get__(self, instance, owner):
         if instance is None:
             return self
+
         try:
             return instance._attr_values[self.name]
         except KeyError as e:
@@ -220,11 +215,9 @@ class CfgAttr:
         if self.nullable and value is None:
             return None
 
-        from .optuna import OptunaHP
-        if isinstance(value, OptunaHP):
+        if isinstance(value, str) and value.startswith("$"):
             return value
-        if isinstance(value, str) and value.startswith("$optuna"):
-            return OptunaHP("test", value[8:])
+
         if self._checker is not None:
             value = self._checker(value, cfg_dict)
         return self._check_value(value, cfg_dict)
@@ -391,7 +384,7 @@ class StrMapAttr(CfgAttr):
 
 
 class ObjAttr(CfgAttr):
-    def __init__(self, default='__default__', shortcut=None, obj_type=None):
+    def __init__(self, default='__default__', shortcut=None, obj_type=None, nullable=None):
         if obj_type is not None:
             if default == '__default__':
                 default = obj_type()
@@ -400,11 +393,11 @@ class ObjAttr(CfgAttr):
                     raise ValueError(f'Invalid shortcut name: {shortcut}. \n'
                                      f'(Valid shortcut are: {list(obj_type.__attr__.keys())}).')
             self.shortcut = shortcut
-            super(ObjAttr, self).__init__(default)
+            super(ObjAttr, self).__init__(default, nullable=nullable)
         else:
             self.shortcut = shortcut
             self.obj_type = None
-            super(ObjAttr, self).__init__()
+            super(ObjAttr, self).__init__(nullable=nullable)
             self.default = default
 
     def __repr__(self):
@@ -412,7 +405,7 @@ class ObjAttr(CfgAttr):
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, Mapping):
-            value = self.obj_type.recursive_from_cfg(value)
+            value = self.obj_type.from_cfg(value)
         elif not isinstance(value, self.obj_type):
             if self.shortcut is None:
                 raise InvalidCfgAttr(f"{value} is invalid for attribute {self.name}.")

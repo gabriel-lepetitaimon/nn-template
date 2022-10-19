@@ -4,6 +4,10 @@ from collections.abc import Iterable
 import weakref
 
 
+UNDEFINED = '__undefined__'
+HYPER_PARAMETER = '__hyper-parameter__'
+
+
 def is_dict(o):
     return isinstance(o, (dict, CfgDict))
 
@@ -502,6 +506,16 @@ class CfgCollection(CfgDict):
             mark = None
         value = self._to_obj_type(value, mark)
         return super(CfgCollection, self).__setitem__(key, value)
+
+    def init_after_populate(self):
+        pass
+
+    def _init_after_populate(self):
+        self.init_after_populate()
+        for obj in self.values():
+            from .cfg_object import ObjCfg
+            if isinstance(obj, ObjCfg):
+                obj._init_after_populate()
 
     @property
     def obj_types(self):

@@ -6,6 +6,14 @@ experiment:
     (tags):
         ...
 
+
+###########################################################
+#         ---   HYPER-PARAMETER SEARCH   ---              #
+###########################################################
+optuna:
+    storage: 'test'
+    study_name: 'test'
+
 ###########################################################
 #                    ---   TASK   ---                    #
 ###########################################################
@@ -101,7 +109,7 @@ data-augmentation:
         flip: True
         rotation: True
         elastic:
-            alpha: $optuna.float()
+            alpha: ~optuna.float(low=0, high=1)
             sigma: 20
             alpha-affine: 50
         random-crop: 512

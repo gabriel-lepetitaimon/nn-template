@@ -176,6 +176,8 @@ class CfgParser:
         for path, cfg_obj_class in _registered_cfg_object.items():
             if path in cfg_dict:
                 cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path], mark=cfg_dict.get_mark(path))
+        for path in _registered_cfg_object.keys():
+            cfg_dict[path]._init_after_populate()
         return cfg_dict
 
 
