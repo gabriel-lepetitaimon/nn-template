@@ -7,8 +7,9 @@ from .hyperparameter_optimization import HyperParameter
 
 
 class InvalidCfgAttr(Exception):
-    def __init__(self, msg):
+    def __init__(self, msg, info=None):
         super(InvalidCfgAttr, self).__init__(msg)
+        self.info = info
 
 
 class MetaCfgObj(type):
@@ -125,7 +126,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
                 try:
                     attr_value = attr.check_value(value, cfg_dict=self)
                 except (InvalidCfgAttr, ParseError) as e:
-                    raise ParseError(str(e), mark) from None
+                    raise ParseError(str(e), mark, getattr(e, 'info', None)) from None
                 if isinstance(attr_value, CfgDict):
                     if isinstance(value, CfgDict):
                         value = attr_value
@@ -139,21 +140,27 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
     def check_integrity(self):
         missing_keys = {k for k, v in self.attr(default=UNDEFINED).items() if v is UNDEFINED}
         if missing_keys:
-            raise InvalidCfgAttr(f"Missing not-optional attributes {tuple(missing_keys)} "
-                                 f"to define {type(self).__name__}")
+            from .cfg_parser import format_value
+            if len(missing_keys) == 1:
+                    raise InvalidCfgAttr(f"Key {format_value(missing_keys)} is missing to {self.name} definition",
+                                     f"This attribute is required to parse {self.name} as a {type(self).__name__}.")
+            else:
+                raise InvalidCfgAttr(f"Keys {format_value(missing_keys)} are missing to {self.name} definition",
+                                     f"Those attribute are required to parse {self.name} as a {type(self).__name__}.")
 
     @classmethod
-    def from_cfg(cls, cfg_dict: dict[str, any], mark=None):
+    def from_cfg(cls, cfg_dict: dict[str, any], mark=None, path=None):
         r = cls()
         r.update(cfg_dict)
-        r._init_after_populate()
         if mark is not None:
             r.mark = mark
+        if path is not None:
+            r._name = path.rsplit('.', 1)[-1]
         try:
             r.check_integrity()
         except InvalidCfgAttr as e:
             from .cfg_parser import ParseError
-            raise ParseError(str(e), mark) from None
+            raise ParseError(str(e), mark, e.info) from None
         return r
 
     def attr(self, default=UNDEFINED):
@@ -171,11 +178,13 @@ class CfgCollectionType:
     def __call__(self, data=None):
         return self.from_cfg(data)
 
-    def from_cfg(self, cfg_dict: CfgDict, mark=None):
+    def from_cfg(self, cfg_dict: CfgDict, mark=None, path=None):
         r = CfgCollection.from_dict(data=cfg_dict, obj_types=self.obj_types, default_key=self.default_key,
                                     recursive=True, read_marks=True)
         if mark is not None:
             r.mark = mark
+        if path is not None:
+            r._name = path.rsplit(',', 1)[-1]
         return r
 
 
@@ -315,10 +324,10 @@ class FloatAttr(CfgAttr):
             raise InvalidCfgAttr(f"{value} is not a valid float for attribute {self.name}")
 
         if self.min is not None and self.min > value:
-            raise InvalidCfgAttr(f"Provided value: {value:.4e}, exceed the minimum value {self.min} "
+            raise InvalidCfgAttr(f"Provided value: {value:.4e}, exceed the minimum value {self.min:.4e} "
                                  f"for attribute {self.name}")
         if self.max is not None and self.max < value:
-            raise InvalidCfgAttr(f"Provided value: {value:.4e}, exceed the maximum value {self.max} "
+            raise InvalidCfgAttr(f"Provided value: {value:.4e}, exceed the maximum value {self.max:.4e} "
                                  f"for attribute {self.name}")
         return value
 
@@ -336,7 +345,8 @@ class BoolAttr(CfgAttr):
         try:
             return bool(value)
         except TypeError:
-            raise InvalidCfgAttr(f"{value} is not a valid boolean for attribute {self.name}")
+            from .cfg_parser import format_value
+            raise InvalidCfgAttr(f"{format_value(value)} is not a valid boolean for attribute {self.name}")
 
 
 class OneOfAttr(CfgAttr):
@@ -408,7 +418,7 @@ class ObjAttr(CfgAttr):
             value = self.obj_type.from_cfg(value)
         elif not isinstance(value, self.obj_type):
             if self.shortcut is None:
-                raise InvalidCfgAttr(f"{value} is invalid for attribute {self.name}.")
+                raise InvalidCfgAttr(f"{str(value)} is invalid for attribute {self.name}.")
             obj = self.obj_type()
             obj[self.shortcut] = value
             value = obj
@@ -495,7 +505,8 @@ class CollectionRefAttr(CfgAttr):
             try:
                 return referenced_collection[value]
             except KeyError:
+                from .cfg_parser import format_value
                 raise InvalidCfgAttr(f'Unknown reference key "{value}". \n'
-                                     f'Must be one of {referenced_collection.keys()}.')
+                                     f'Must be one of {format_value(referenced_collection.keys())}.')
 
         return value

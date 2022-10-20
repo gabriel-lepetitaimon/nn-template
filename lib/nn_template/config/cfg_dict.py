@@ -1,3 +1,4 @@
+from __future__ import annotations
 from functools import reduce
 from typing import Mapping, Dict, List
 from collections.abc import Iterable
@@ -51,7 +52,7 @@ class CursorCfgDict:
         self.direction = 'continue'
 
     @property
-    def parent(self):
+    def parent(self) -> CfgDict:
         return self._cfg_dict[self.path[:-1]]
 
     @property
@@ -185,11 +186,21 @@ class CfgDict(dict):
     def fullname(self):
         return None if self._parent is None else '.'.join(self.path()+(self.name,))
 
-    def to_dict(self, flatten_path=False):
-        if flatten_path:
-            return {cursor.fullname: cursor.value for cursor in self.walk_cursor()}
+    def to_dict(self, flatten_path=False, exportable=False):
+        if exportable:
+            def format_v(v):
+                from .hyperparameter_optimization import HyperParameter
+                match v:
+                    case HyperParameter(): return v.full_specifications
+                    case _: return v
         else:
-            return recursive_dict_map(self, lambda k, v: v)
+            def format_v(v):
+                return v
+
+        if flatten_path:
+            return {cursor.fullname: format_v(cursor.value) for cursor in self.walk_cursor()}
+        else:
+            return recursive_dict_map(self, lambda k, v: format_v(v))
 
     def __str__(self):
         s = ''
@@ -199,11 +210,11 @@ class CfgDict(dict):
 
     def to_json(self):
         from json import dumps
-        return dumps(self)
+        return dumps(self.to_dict(exportable=True))
 
     def to_yaml(self, file=None):
         import yaml
-        return yaml.safe_dump(self.to_dict(), stream=file, default_flow_style=False, sort_keys=False)
+        return yaml.safe_dump(self.to_dict(exportable=True), stream=file, default_flow_style=False, sort_keys=False)
 
     def print_full_paths(self, prefix=''):
         return (prefix+'\n').join(f'{k}: {v}' for k, v in self.to_dict(flatten_path=True).items())

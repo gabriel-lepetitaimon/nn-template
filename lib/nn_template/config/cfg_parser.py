@@ -2,6 +2,7 @@ import os
 from yaml import SafeLoader
 from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
+from collections import abc
 import numpy as np
 
 from .cfg_dict import CfgDict
@@ -26,12 +27,27 @@ def register_obj(path: str, collection=False):
 
 
 class ParseError(Exception):
-    def __init__(self, error, mark=None):
+    def __init__(self, error, mark=None, info=None):
         if error.endswith('.'):
             error = error[:-1]
-        super(ParseError, self).__init__(error+(', '+str(mark)+'.' if mark is not None else '.'))
+        super(ParseError, self).__init__(error + (', '+str(mark)+'.' if mark is not None else '.')
+                                         + ('\n\t' + info.replace('\n', '\n\t') if info else ''))
         self.mark = mark
         self.error = error
+        self.info = info
+
+
+def format_value(v):
+    match v:
+        case str():
+            v.replace('"', '\\"')
+            return f'"{v}"'
+        case float():
+            return f"{v:.4e}"
+        case abc.Iterable():
+            return ', '.join(format_value(_) for _ in v)
+        case _:
+            return str(v)
 
 
 class CfgParser:
@@ -175,7 +191,7 @@ class CfgParser:
             cfg_dict = cfg_dict.copy()
         for path, cfg_obj_class in _registered_cfg_object.items():
             if path in cfg_dict:
-                cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path], mark=cfg_dict.get_mark(path))
+                cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path], mark=cfg_dict.get_mark(path), path=path)
         for path in _registered_cfg_object.keys():
             cfg_dict[path]._init_after_populate()
         return cfg_dict

@@ -11,8 +11,14 @@ experiment:
 #         ---   HYPER-PARAMETER SEARCH   ---              #
 ###########################################################
 optuna:
-    storage: 'test'
     study_name: 'test'
+    sampler:
+        type: TPE
+        n_startup_trials: 20
+    pruner:
+        type: Hyperband
+        
+        
 
 ###########################################################
 #                    ---   TASK   ---                    #

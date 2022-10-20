@@ -17,7 +17,7 @@ class HyperParametersOptimizerEngine:
     def cfg(self) -> CfgDict:
         return self._cfg()
 
-    def create_hyperparameter(self, name, parent, specification) -> HyperParameter:
+    def create_hyperparameter(self, name, parent, specification, mark) -> HyperParameter:
         pass
 
     def apply_suggestion(self):
@@ -32,7 +32,7 @@ class HyperParametersOptimizerEngine:
     def discover_hyperparameters(self):
         for cursor in self.cfg.walk_cursor():
             if isinstance(cursor.value, str) and cursor.value.startswith('~'+self.engine_name()):
-                hp = self.create_hyperparameter(cursor.name, cursor.parent, cursor.value)
+                hp = self.create_hyperparameter(cursor.name, cursor.parent, cursor.value, cursor.mark)
                 self.hyper_parameters[hp.fullname] = hp
             self.clear_suggestion()
 
@@ -42,12 +42,13 @@ class HyperParametersOptimizerEngine:
 
 
 class HyperParameter:
-    def __init__(self, name, parent: CfgDict, full_specifications: str, engine: HyperParametersOptimizerEngine):
+    def __init__(self, name, parent: CfgDict, full_specifications: str, engine: HyperParametersOptimizerEngine, mark):
         self.name = name
         self._parent = weakref.ref(parent)
         self._engine = weakref.ref(engine)
         self.full_specifications = full_specifications
         self.suggested_value = UNDEFINED
+        self.mark = mark
 
     @property
     def parent(self):

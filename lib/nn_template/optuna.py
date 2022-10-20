@@ -2,6 +2,7 @@ import inspect
 import optuna
 
 from .config import Cfg
+from .config.cfg_parser import ParseError
 from .config.hyperparameter_optimization import HyperParameter, HyperParametersOptimizerEngine, register_hp_optimizer_engine
 
 
@@ -51,8 +52,8 @@ class OptunaPrunerCfg(Cfg.Obj):
 
 @Cfg.register_obj("optuna")
 class OptunaCfg(Cfg.Obj):
-    storage = Cfg.str()
-    study_name = Cfg.str()
+    storage = Cfg.str(default=None)
+    study_name = Cfg.str(default=None)
     direction = Cfg.oneOf('minimize', 'maximize', default='minimize')
     sampler: OptunaSamplerCfg = Cfg.obj(shortcut='type', default=None, nullable=True)
     pruner: OptunaPrunerCfg = Cfg.obj(shortcut='type', default=None, nullable=True)
@@ -133,8 +134,8 @@ class OptunaEngine(HyperParametersOptimizerEngine):
     def __init__(self, cfg: Cfg.Dict):
         super(OptunaEngine, self).__init__(cfg)
 
-    def create_hyperparameter(self, name, parent, specification) -> HyperParameter:
-        return OptunaHP(name, parent, specification, self)
+    def create_hyperparameter(self, name, parent, specification, mark) -> HyperParameter:
+        return OptunaHP(name, parent, specification, self, mark)
 
     def suggest(self, trial: optuna.trial.Trial):
         for hp in self.hyper_parameters.values():
@@ -147,18 +148,18 @@ class OptunaEngine(HyperParametersOptimizerEngine):
 
 
 class OptunaHP(HyperParameter):
-    def __init__(self, name: str, parent: Cfg.Dict, specs: str, engine: OptunaEngine):
+    def __init__(self, name: str, parent: Cfg.Dict, specs: str, engine: OptunaEngine, mark):
         self.name = name
         self._suggested_value = None
-        self._type, self.args = OptunaHP.parse_args(specs.split('.', 1)[-1])
-        super(OptunaHP, self).__init__(name, parent, specs, engine)
+        self._type, self.args, self.kwargs = OptunaHP.parse_args(specs.split('.', 1)[-1], mark)
+        super(OptunaHP, self).__init__(name, parent, specs, engine, mark)
 
     @property
     def type(self):
         return {'int': int, 'float': float, 'categorical': None}[self._type]
 
     @staticmethod
-    def parse_args(specs: str):
+    def parse_args(specs: str, mark=None):
         type, args = specs.split('(', 1)
         args = args.rsplit(')', 1)[0]
 
@@ -166,15 +167,20 @@ class OptunaHP(HyperParameter):
             case 'int': suggest_f = optuna.trial.Trial.suggest_int
             case 'float': suggest_f = optuna.trial.Trial.suggest_float
             case 'categorical': suggest_f = optuna.trial.Trial.suggest_categorical
-            case _: raise ValueError(f"Invalid type for Optuna Hyper Parameter suggestion.\n"
-                                     f"Valid types are int, float or categorical, provided type is '{type}'.")
+            case _:
+                from .config.cfg_parser import format_value
+                raise ParseError(f"Invalid optuna suggestion method {format_value(type)}\n", mark,
+                                 "Valid method are optuna.int, optuna.float or optuna.categorical.")
 
         def f(*args, **kwargs):
             return args, kwargs
-        args = eval(f"f('test', {args})")
-        args = inspect.signature(suggest_f).bind(*args[0], name='foo')
+        args = eval(f"f('foo', {args})")
+        try:
+            args = inspect.signature(suggest_f).bind(None, *args[0], **args[1])
+        except (TypeError, AttributeError) as e:
+            raise ParseError(f"Invalid argument for ~optuna.{type}", mark, str(e)) from None
         args.apply_defaults()
-        return type, args
+        return type, args.args[2:], args.kwargs
 
     def suggest(self, trial: optuna.trial.Trial):
         match self._type:
@@ -187,7 +193,7 @@ class OptunaHP(HyperParameter):
             case _:
                 return
 
-        v = suggest_f(self.name, *self.args.args, **self.args.kwargs)
+        v = suggest_f(self.name, *self.args, **self.kwargs)
         self.suggested_value = v
         return v
 
