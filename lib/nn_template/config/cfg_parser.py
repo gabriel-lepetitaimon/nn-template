@@ -37,7 +37,7 @@ class ParseError(Exception):
         self.info = info
 
 
-def format_value(v):
+def format2str(v):
     match v:
         case str():
             v.replace('"', '\\"')
@@ -45,7 +45,7 @@ def format_value(v):
         case float():
             return f"{v:.4e}"
         case abc.Iterable():
-            return ', '.join(format_value(_) for _ in v)
+            return ', '.join(format2str(_) for _ in v)
         case _:
             return str(v)
 

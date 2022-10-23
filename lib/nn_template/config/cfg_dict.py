@@ -539,7 +539,7 @@ class CfgCollection(CfgDict):
         if self.type_key is None:
             return CfgCollection.to_type(self.obj_types, value, mark=mark)
         else:
-            return CfgCollection.match_type(self.obj_types, self.type_key, value, mark=mark)
+            return CfgCollection.match_type(self._obj_types, self.type_key, value, mark=mark)
 
     @staticmethod
     def match_type(obj_types: Mapping[str, type], type_key: str, value: any, mark=None):
@@ -556,20 +556,25 @@ class CfgCollection(CfgDict):
     @staticmethod
     def to_type(obj_types: List[type], value: any, mark=None):
         from .cfg_parser import ParseError
-        from .cfg_object import InvalidCfgAttr
+        from .cfg_object import IncompleteObjError
         for obj_type in obj_types:
-            try:
-                if hasattr(obj_type, 'from_cfg') and isinstance(value, dict):
+            if hasattr(obj_type, 'from_cfg') and isinstance(value, (dict, CfgDict)):
+                try:
                     return obj_type.from_cfg(value, mark)
-                else:
+                except IncompleteObjError:
+                    continue
+            else:
+                try:
                     return obj_type(value)
-            except (TypeError, ParseError, InvalidCfgAttr):
-                continue
+                except TypeError:
+                    continue
 
         if len(obj_types) == 1:
-            raise ParseError(f"Item type ({type(value)} doesn't match Collection type ({obj_types[0]})", mark)
+            raise ParseError(f"Item type {type(value).__name__} doesn't match Collection type {obj_types[0].__name__})", mark)
         else:
-            raise ParseError(f"Item type ({type(value)} doesn't match any Collection type {obj_types}", mark)
+            from .cfg_parser import format2str
+            raise ParseError(f"Item type {type(value).__name__} doesn't match any Collection type "
+                             f"{format2str([_.__name__ for _ in obj_types])}", mark)
 
 
 class CfgCollectionRef:

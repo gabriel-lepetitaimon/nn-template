@@ -2,7 +2,7 @@ import os.path as P
 from torch.utils.data import Dataset as TorchDataset
 
 from ..config import Cfg
-from .data_sources import DataSource, DataSourcesAttr
+from .data_sources import DataCollectionsAttr
 from ..data_augmentation import DataAugmentationCfg
 
 
@@ -14,15 +14,20 @@ class AugmentCfg(Cfg.Obj):
     factor: int = 1
 
 
+class DataSource(Cfg.Obj):
+    dir_prefix = Cfg.str('./')
+    data = DataCollectionsAttr()
+
+
 class DatasetCfg(Cfg.Obj):
     source: DataSource = Cfg.ref('datasets.sources')
-    augment: AugmentCfg = Cfg.obj()
+    augment: AugmentCfg = Cfg.obj(default='', shortcut='augmentation')
 
 
 @Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
     fields = Cfg.collection(str)
-    # sources = DataSourcesAttr()
+    sources = Cfg.collection(DataSource)
 
     train: DatasetCfg = Cfg.obj(shortcut='source')
     validate: DatasetCfg = Cfg.obj(shortcut='source')

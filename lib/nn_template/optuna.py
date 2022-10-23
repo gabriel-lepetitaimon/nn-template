@@ -168,8 +168,8 @@ class OptunaHP(HyperParameter):
             case 'float': suggest_f = optuna.trial.Trial.suggest_float
             case 'categorical': suggest_f = optuna.trial.Trial.suggest_categorical
             case _:
-                from .config.cfg_parser import format_value
-                raise ParseError(f"Invalid optuna suggestion method {format_value(type)}\n", mark,
+                from .config.cfg_parser import format2str
+                raise ParseError(f"Invalid optuna suggestion method {format2str(type)}\n", mark,
                                  "Valid method are optuna.int, optuna.float or optuna.categorical.")
 
         def f(*args, **kwargs):

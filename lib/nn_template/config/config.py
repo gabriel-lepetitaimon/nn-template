@@ -133,13 +133,13 @@ class Cfg:
     collection = CollectionAttr
     multi_type_collection = MultiTypeCollectionAttr
     shape = ShapeAttr
-    ref = CollectionRefAttr
+    ref = RefAttr
 
     Parser = CfgParser
     Obj = ObjCfg
     Collection = CfgCollection
     Dict = CfgDict
     Attr = CfgAttr
-    InvalidAttr = InvalidCfgAttr
+    InvalidAttr = InvalidCfgAttrError
 
     register_obj = register_obj

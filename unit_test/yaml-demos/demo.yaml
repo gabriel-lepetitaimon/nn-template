@@ -6,20 +6,6 @@ experiment:
     (tags):
         ...
 
-
-###########################################################
-#         ---   HYPER-PARAMETER SEARCH   ---              #
-###########################################################
-optuna:
-    study_name: 'test'
-    sampler:
-        type: TPE
-        n_startup_trials: 20
-    pruner:
-        type: Hyperband
-        
-        
-
 ###########################################################
 #                    ---   TASK   ---                    #
 ###########################################################
@@ -87,25 +73,26 @@ datasets:
 
     sources:
         - MESSIDOR-train:
-              path-prefix: 'PATH/train'
+              dir-prefix: '/home/gaby/These/Data/Fundus/DRIVE/train/'
 
               data:
                   raw:
                     type: ColorMap
-                    path: 'raw'
+                    directory: '0-images'
+                    path: '{ID:n}_training.png'
                     resize: 1500
                   gt:
                     type: LabelMap
-                    path: 'gt'
-                    resize: 1500
+                    directory: '2-label_AV'
+                    $: ..raw
 
         - MESSIDOR-val:
               $: ..MESSIDOR-train
-              path-prefix: 'PATH/val'
+              dir-prefix: 'PATH/val'
 
         - MESSIDOR-test:
               $: ..MESSIDOR-train
-              path-prefix: 'PATH/test'
+              dir-prefix: 'PATH/test'
 
 ###########################################################
 #              ---   DATA-AUGMENTATIONS   ---             #
@@ -115,11 +102,10 @@ data-augmentation:
         flip: True
         rotation: True
         elastic:
-            alpha: ~optuna.float(low=0, high=1)
+            alpha: ~optuna.float(low=1, high=50)
             sigma: 20
             alpha-affine: 50
         random-crop: 512
-
 
         # gamma: ±0.2
         # hue: ±20

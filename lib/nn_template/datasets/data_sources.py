@@ -2,22 +2,13 @@ import os
 from ..config import Cfg
 
 
-class DataSource(Cfg.Obj):
+class DataCollectionsAttr(Cfg.multi_type_collection):
     def __init__(self):
-        pass
-
-
-class DataAttr(Cfg.multi_type_collection):
-    def __init__(self):
-        super(DataAttr, self).__init__(obj_types={
+        super(DataCollectionsAttr, self).__init__(obj_types={
             'ColorMap': ColorImage,
             'LabelMap': LabelImage,
             'MaskMap': MaskImage,
         })
-
-
-class DataSourcesAttr(Cfg.multi_type_collection):
-    pass
 
 
 class DataLoader(Cfg.Obj):
@@ -28,6 +19,18 @@ class DataLoader(Cfg.Obj):
             self.update_indexes()
         return self._indexes
 
+    @property
+    def source(self):
+        source = self.root(2)
+        from .dataset import DataSource
+        if isinstance(source, DataSource):
+            return source
+        return None
+
+    def source_name(self):
+        source = self.source
+        return source.name if source is not None else ""
+
     def update_indexes(self):
         self._indexes = self.fetch_indexes()
 
@@ -37,26 +40,33 @@ class DataLoader(Cfg.Obj):
     def fetch_data(self, index):
         pass
 
-    def __getitem__(self, item):
-        return self.fetch_data(self.indexes.iloc[item])
-
 # =======================================================================================
 
 
-class ImageLoader(DataLoader):
-    path = Cfg.str()
-    resize = Cfg.shape(dim=2, default=None, nullable=True)
+class FilesPathLoader(DataLoader):
+    path = Cfg.str('{ID}')
+    directory = Cfg.str('')
+    search_recursive = Cfg.bool(True)
 
     @property
-    def working_dir(self):
-        cwd = './'
-        if self.parent:
-            return self.parent.get('path-prefix', cwd)
-        return cwd
+    def dir(self):
+        dir = './'
+        if self.source:
+            dir = self.source.get('dir-prefix', dir)
+        dir += self.directory
+        if not os.path.exists(dir):
+            raise Cfg.InvalidAttr(f"The source directory for {self.name} is invalid",
+                                  f'Path "{dir}" does not exist.')
+        return dir
 
     def fetch_indexes(self):
         from .path_utils import PathTemplate
-        return PathTemplate(self.path, format_output='pandas').parse_dir(self.working_dir)
+        return PathTemplate(self.path, format_output='pandas') \
+            .parse_dir(self.dir, recursive=self.search_recursive)
+
+
+class ImageLoader(FilesPathLoader):
+    resize = Cfg.shape(dim=2, default=None, nullable=True)
 
     def fetch_data(self, path):
         import cv2
