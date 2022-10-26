@@ -14,12 +14,6 @@ class DataCollectionsAttr(Cfg.multi_type_collection):
 class DataLoader(Cfg.Obj):
 
     @property
-    def indexes(self):
-        if not hasattr(self, '_indexes') or self._indexes is None:
-            self.update_indexes()
-        return self._indexes
-
-    @property
     def source(self):
         source = self.root(2)
         from .dataset import DataSource
@@ -30,9 +24,6 @@ class DataLoader(Cfg.Obj):
     def source_name(self):
         source = self.source
         return source.name if source is not None else ""
-
-    def update_indexes(self):
-        self._indexes = self.fetch_indexes()
 
     def fetch_indexes(self):
         pass

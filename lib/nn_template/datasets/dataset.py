@@ -1,4 +1,6 @@
 import os.path as P
+
+import pandas as pd
 from torch.utils.data import Dataset as TorchDataset
 
 from ..config import Cfg
@@ -18,10 +20,47 @@ class DataSource(Cfg.Obj):
     dir_prefix = Cfg.str('./')
     data = DataCollectionsAttr()
 
+    @property
+    def indexes(self):
+        idx = getattr(self, '_indexes', None)
+        if idx is None:
+            idx = self.fetch_indexes()
+            self._indexes = idx
+        return idx
+
+    def fetch_indexes(self):
+        indexes = {name: src.fetch_indexes() for name, src in self.data.items()}
+        if len(indexes) == 1:
+            return pd.DataFrame(indexes)
+        else:
+            idx = pd.DataFrame()
+            for name, src_idx in indexes.items():
+                idx = pd.merge(idx, pd.DataFrame({name:src_idx}))
+            return idx
+
+    def update_indexes(self):
+        idx = self.fetch_indexes()
+        self._indexes = idx
+        return idx
+
+    def get_sample(self, i):
+        idx = self.fetch_indexes().iloc[i]
+        return {name: src.fetch_data(idx[name]) for name, src in self.data.items()}
+
+
+class DatasetSourceRef(Cfg.Obj):
+    source: DataSource = Cfg.ref('datasets.sources')
+    factor = Cfg.float(1)
+
 
 class DatasetCfg(Cfg.Obj):
-    source: DataSource = Cfg.ref('datasets.sources')
+    source = Cfg.obj_list(main_key='source', obj_types=DatasetSourceRef)
     augment: AugmentCfg = Cfg.obj(default='', shortcut='augmentation')
+
+    def read_indexes(self):
+        for sourceRef in list(self.source):
+            source: DataSource = sourceRef.source
+
 
 
 @Cfg.register_obj('datasets')
@@ -38,8 +77,10 @@ class DatasetsCfg(Cfg.Obj):
 
 
 class Dataset(TorchDataset):
-    def __init__(self):
+    def __init__(self, dataset_cfg: DatasetCfg, fields: dict):
         super(Dataset, self).__init__()
+        self.dataset_cfg = dataset_cfg
+        self.field_cfg = fields
 
     def __len__(self):
         pass

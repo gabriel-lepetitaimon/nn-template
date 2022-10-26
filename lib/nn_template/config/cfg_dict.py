@@ -108,6 +108,7 @@ class CfgDict(dict):
             if isinstance(data, CfgDict):
                 r.child_mark = data.child_mark
                 r.mark = data.mark
+                r._parent = data.parent
 
             for k, v in data.items():
                 if read_marks:
@@ -500,7 +501,9 @@ class CfgCollection(CfgDict):
 
         if type_key is None:
             self._obj_types = [obj_types] if isinstance(obj_types, type) else obj_types
-            assert isinstance(self.obj_types, list), f"{type(self).__name__} Invalid obj_types: should be list when type_key is not provided."
+            assert isinstance(self.obj_types, (list, tuple)), (f"{type(self).__name__} "
+                           f"Invalid obj_types: should be list when type_key is not provided.\n"
+                           f"\tProvided value is:\n"+repr(self._obj_types))
             assert all(isinstance(_, type) for _ in self.obj_types)
         else:
             assert isinstance(obj_types, Mapping), f"{type(self).__name__} Invalid obj_types: should be dict when type_key is provided."
@@ -537,12 +540,11 @@ class CfgCollection(CfgDict):
 
     def _to_obj_type(self, value, mark=None):
         if self.type_key is None:
-            return CfgCollection.to_type(self.obj_types, value, mark=mark)
+            return self.to_type(self.obj_types, value, mark=mark)
         else:
-            return CfgCollection.match_type(self._obj_types, self.type_key, value, mark=mark)
+            return self.match_type(self._obj_types, self.type_key, value, mark=mark)
 
-    @staticmethod
-    def match_type(obj_types: Mapping[str, type], type_key: str, value: any, mark=None):
+    def match_type(self, obj_types: Mapping[str, type], type_key: str, value: any, mark=None):
         from .cfg_parser import ParseError
         t = value.get(type_key, None)
         if t is None:
@@ -551,10 +553,9 @@ class CfgCollection(CfgDict):
         if obj_type is None:
             raise ParseError(f'Invalid value "{t}" for attribute {type_key}. '
                              f'Should be one of {", ".join(obj_types.keys())}', mark)
-        return CfgCollection.to_type([obj_type], value, mark=mark)
+        return self.to_type([obj_type], value, mark=mark)
 
-    @staticmethod
-    def to_type(obj_types: List[type], value: any, mark=None):
+    def to_type(self, obj_types: List[type], value: any, mark=None):
         from .cfg_parser import ParseError
         from .cfg_object import IncompleteObjError
         for obj_type in obj_types:
@@ -584,3 +585,20 @@ class CfgCollectionRef:
 
     def ref(self):
         return self.collection[self.key]
+
+
+class CfgList(CfgCollection):
+    def __init__(self, obj_types, id_key: str, type_key: str=None, data=None, parent=None):
+        self.id_key = id_key
+        super(CfgList, self).__init__(obj_types=obj_types, type_key=type_key, data=data, parent=parent)
+
+    def __iter__(self):
+        return iter(self.values())
+
+    def __setitem__(self, key, value):
+        if not isinstance(value, (dict, CfgDict)):
+            value = CfgDict({self.id_key: value}, parent=self)
+        else:
+            value = value.copy()
+            value[self.id_key] = key
+        super(CfgList, self).__setitem__(key, value)

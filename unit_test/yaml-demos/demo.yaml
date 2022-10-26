@@ -6,6 +6,20 @@ experiment:
     (tags):
         ...
 
+
+###########################################################
+#         ---   HYPER-PARAMETER SEARCH   ---              #
+###########################################################
+optuna:
+    study_name: 'test'
+    sampler:
+        type: TPE
+        n_startup_trials: 20
+    pruner:
+        type: Hyperband
+        
+        
+
 ###########################################################
 #                    ---   TASK   ---                    #
 ###########################################################
@@ -59,7 +73,7 @@ datasets:
     train:
         source: 'MESSIDOR-train'
         augment:
-            augmentation: default
+            augmentation: defult
             factor: 2
 
     validate:
@@ -67,12 +81,12 @@ datasets:
         cache: True
 
     test:
-        - "test":
+        "test":
             source: 'MESSIDOR-test'
             cache: True
 
     sources:
-        - MESSIDOR-train:
+        MESSIDOR-train:
               dir-prefix: '/home/gaby/These/Data/Fundus/DRIVE/train/'
 
               data:
@@ -86,11 +100,11 @@ datasets:
                     directory: '2-label_AV'
                     $: ..raw
 
-        - MESSIDOR-val:
+        MESSIDOR-val:
               $: ..MESSIDOR-train
               dir-prefix: 'PATH/val'
 
-        - MESSIDOR-test:
+        MESSIDOR-test:
               $: ..MESSIDOR-train
               dir-prefix: 'PATH/test'
 

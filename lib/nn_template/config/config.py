@@ -131,6 +131,7 @@ class Cfg:
     strMap = StrMapAttr
     obj = ObjAttr
     collection = CollectionAttr
+    obj_list = ObjListAttr
     multi_type_collection = MultiTypeCollectionAttr
     shape = ShapeAttr
     ref = RefAttr
@@ -140,6 +141,6 @@ class Cfg:
     Collection = CfgCollection
     Dict = CfgDict
     Attr = CfgAttr
-    InvalidAttr = InvalidCfgAttrError
+    InvalidAttr = AttrValueError
 
     register_obj = register_obj
