@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from types import UnionType
+from collections.abc import Iterable
 import weakref
 
 from .cfg_dict import CfgDict, CfgCollection, CfgList, UNDEFINED, HYPER_PARAMETER
@@ -44,7 +45,7 @@ class MetaCfgObj(type):
                 else:
                     attr = _type2attr(attr_type)
             except (TypeError, AttrValueError):
-                raise AttrValueError(f'Incoherent value and type hint for attribute {attr_name}.')
+                raise AttrValueError(f'Incoherent value and type hint for attribute {attr_name}')
 
             clsdict[attr_name] = attr
             clsdict['__attr__'][attr_name] = attr
@@ -112,15 +113,21 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
         super(ObjCfg, self).__init__(data=data, parent=parent)
         self._attr_values = {}
 
-    def init_after_populate(self):
+    def _init_after_populate(self):
         pass
 
-    def _init_after_populate(self):
-        self.init_after_populate()
+    def init_after_populate(self):
+        # For the ObjAttr not specified in the cfg_dict which should therefore use their default value,
+        # create and store the associated CfgObj in _attr_value
+        for attr_name, obj_attr in self.attributes(ObjAttr).items():
+            if attr_name not in self._attr_values and obj_attr.default is not UNDEFINED:
+                self[attr_name] = obj_attr.default
 
-        for c in self.values():
+        self._init_after_populate()
+
+        for c in self.attr().values():
             if isinstance(c, ObjCfg):
-                c._init_after_populate()
+                c.init_after_populate()
 
     def __setitem__(self, key, value):
         attr_name = key.replace('-', '_')
@@ -150,8 +157,14 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
             self._attr_values[attr_name] = attr_value
         super(ObjCfg, self).__setitem__(key, value)
 
-    def check_integrity(self):
-        missing_keys = {k for k, v in self.attr(default=UNDEFINED).items() if v is UNDEFINED}
+    def check_integrity(self, recursive=True):
+        try:
+            attrs = self.attr(default=UNDEFINED)
+        except AttrValueError as e:
+            from .cfg_parser import ParseError
+            raise ParseError(e.msg, self.mark, e.info) from None
+
+        missing_keys = {k for k, v in attrs.items() if v is UNDEFINED}
         if missing_keys:
             from .cfg_parser import format2str
             if len(missing_keys) == 1:
@@ -160,6 +173,15 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
             else:
                 raise IncompleteObjError(f"Keys {format2str(missing_keys)} are missing to {self.name} definition",
                                      f"Those attribute are required to parse {self.name} as a {type(self).__name__}.")
+
+        if recursive:
+            for attr in attrs.values():
+                if isinstance(attr, ObjCfg):
+                    attr.check_integrity(recursive=recursive)
+                if isinstance(attr, CfgCollection):
+                    for item in attr.values():
+                        if isinstance(item, ObjCfg):
+                            item.check_integrity(recursive=recursive)
 
     @classmethod
     def from_cfg(cls, cfg_dict: dict[str, any], mark=None, path=None):
@@ -172,15 +194,18 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
             r._parent = weakref.ref(cfg_dict.parent)
 
         r.update(cfg_dict)
-        try:
-            r.check_integrity()
-        except AttrValueError as e:
-            from .cfg_parser import ParseError
-            raise ParseError(e.msg, mark, e.info) from None
         return r
 
     def attr(self, default=UNDEFINED):
         return {k: getattr(self, k, default) for k in self.__attr__}
+
+    @classmethod
+    def attributes(cls, filter_type=None):
+        if filter_type:
+            return {name: attr for name, attr in cls.__attr__.items()
+                    if isinstance(attr, filter_type)}
+        else:
+            return cls.__attr__
 
     def _repr_markdown_(self):
         return "\n".join([f"**{self.name}** _{type(self).__name__}_:\n"]+[f"- {k}: {v}" for k, v in self.attr().items()])
@@ -188,7 +213,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
 
 class CfgCollectionType:
     def __init__(self, obj_types, default_key=None):
-        self.obj_types = obj_types
+        self.obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
         self.default_key = default_key
 
     def __call__(self, data=None):
@@ -287,11 +312,11 @@ class IntAttr(CfgAttr):
         except TypeError:
             raise AttrValueError(f"{value} is not a valid integer for attribute {self.name}")
         if self.min is not None and self.min > value:
-            raise AttrValueError(f"Provided value: {value}, exceed the minimum value {self.min} "
-                                 f"for attribute {self.name}")
+            raise AttrValueError(f"Invalid value for attribute {self.name}",
+                                 f"Provided value: {value}, exceed the minimum value {self.min}.")
         if self.max is not None and self.max < value:
-            raise AttrValueError(f"Provided value: {value}, exceed the maximum value {self.max} "
-                                 f"for attribute {self.name}")
+            raise AttrValueError(f"Invalid value for attribute {self.name}",
+                                 f"Provided value: {value}, exceed the maximum value {self.max}.")
         return value
 
 
@@ -340,11 +365,11 @@ class FloatAttr(CfgAttr):
             raise AttrValueError(f"{value} is not a valid float for attribute {self.name}")
 
         if self.min is not None and self.min > value:
-            raise AttrValueError(f"Provided value: {value:.4e}, exceed the minimum value {self.min:.4e} "
-                                 f"for attribute {self.name}")
+            raise AttrValueError("Invalid value for attribute {self.name}",
+                                 f"Provided value: {value:.4e}, exceed the minimum value {self.min:.4e}.")
         if self.max is not None and self.max < value:
-            raise AttrValueError(f"Provided value: {value:.4e}, exceed the maximum value {self.max:.4e} "
-                                 f"for attribute {self.name}")
+            raise AttrValueError(f"Invalid value for attribute {self.name}",
+                                 f"Provided value: {value:.4e}, exceed the maximum value {self.max:.4e}")
         return value
 
 
@@ -392,7 +417,8 @@ class OneOfAttr(CfgAttr):
             elif value == v:
                 break
         else:
-            raise AttrValueError(f"{value} is invalid for attribute {self.name} (should be one of {self.values})")
+            raise AttrValueError(f"{value} is invalid for attribute {self.name}",
+                                 f"Must be one of {self.values}.")
         return value
 
 
@@ -405,8 +431,8 @@ class StrMapAttr(CfgAttr):
         try:
             return self.map[value]
         except KeyError:
-            raise AttrValueError(f"{value} is invalid for attribute {self.name} "
-                                 f"(should be one of {list(self.map.keys())})")
+            raise AttrValueError(f"{value} is invalid for attribute {self.name} ",
+                                 f"Must be one of {list(self.map.keys())}.")
 
 
 class ObjAttr(CfgAttr):
@@ -430,21 +456,25 @@ class ObjAttr(CfgAttr):
         return f"Cfg.obj(type={self.obj_type}, shortcut={self.shortcut})"
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
-        if isinstance(value, Mapping):
-            value = self.obj_type.from_cfg(value)
-        elif not isinstance(value, self.obj_type):
-            if self.shortcut is None:
-                raise AttrValueError(f"{str(value)} is invalid for attribute {self.name}.")
-            obj = self.obj_type()
-            obj[self.shortcut] = value
-            value = obj
-        return value
+        mark = cfg_dict.get_mark(self.name)
+        if not isinstance(value, self.obj_type):
+            if isinstance(value, Mapping):
+                if not isinstance(value, CfgDict):
+                    value = CfgDict(value, parent=cfg_dict)
+            else:
+                if self.shortcut is None:
+                    raise AttrValueError(f"{str(value)} is invalid for attribute {self.name}")
+                value = CfgDict({self.shortcut: value}, parent=cfg_dict)
+        return self.obj_type.from_cfg(value, mark=mark)
 
 
 class ObjListAttr(CfgAttr):
     def __init__(self, main_key, default=UNDEFINED, obj_types=None):
         self.id_key = main_key
-        self._obj_types = obj_types
+        if obj_types is not None:
+            self._obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
+        else:
+            self._obj_types = None
         super(ObjListAttr, self).__init__(default)
 
     @property
@@ -457,8 +487,11 @@ class ObjListAttr(CfgAttr):
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
-        elif not isinstance(value, (dict, CfgDict)):
-            value = CfgDict(data={value: value}, parent=cfg_dict)
+        elif isinstance(value, str):
+            data = value
+            value = CfgDict(data={data: data}, parent=cfg_dict)
+            value.mark = cfg_dict.child_mark[self.name]
+            value.child_mark = {data: cfg_dict.child_mark[self.name]}
         value = CfgList(data=value, obj_types=self.obj_types, id_key=self.id_key, parent=cfg_dict)
         return value
 
@@ -469,7 +502,7 @@ class Any(CfgAttr):
 
 class CollectionAttr(CfgAttr):
     def __init__(self, obj_types, default=UNDEFINED):
-        self._obj_types = obj_types
+        self._obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
         super(CollectionAttr, self).__init__(default)
 
     @property
@@ -480,7 +513,7 @@ class CollectionAttr(CfgAttr):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
         if not isinstance(value, dict):
-            raise AttrValueError(f'Impossible to populate collection {self.fullname}. '
+            raise AttrValueError(f'Impossible to populate collection {self.fullname}',
                                  f'The provided value is not a dictionary.')
         value = CfgCollection(data=value, obj_types=self.obj_types)
         return value
@@ -500,7 +533,7 @@ class MultiTypeCollectionAttr(CollectionAttr):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
         if not isinstance(value, dict):
-            raise AttrValueError(f'Impossible to populate collection {self.fullname}. '
+            raise AttrValueError(f'Impossible to populate collection {self.fullname}',
                                  f'The provided value is not a dictionary.')
         value = CfgCollection(data=value, obj_types=self._obj_types, type_key=self.type_key)
         return value
@@ -510,9 +543,21 @@ class RefAttr(CfgAttr):
     def __init__(self, collection_path, obj_types=None, default=UNDEFINED):
         self.collection_path = collection_path
         self.obj_types = obj_types
+
         super(RefAttr, self).__init__(default)
 
-    def collection(self, cfg_dict: CfgDict) -> CfgCollection:
+    @property
+    def obj_types(self):
+        return self._obj_types
+
+    @obj_types.setter
+    def obj_types(self, obj_types):
+        if obj_types is not None:
+            self._obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
+        else:
+            self._obj_types = None
+
+    def collection(self, cfg_dict: CfgDict) -> CfgDict:
         try:
             if self.collection_path.startswith('.'):     # Relative ref
                 collection = cfg_dict[self.collection_path[1:]]
@@ -521,31 +566,43 @@ class RefAttr(CfgAttr):
         except KeyError:
             raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}:\n '
                                    f'Unknown path "{self.collection_path}".')
-        if not isinstance(collection, CfgCollection):
-            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}:\n '
-                                 f'Attribute found at path "{self.collection_path}" is not a CfgCollection '
-                                 f'but {type(collection).__name__}.')
-        if self.obj_types is not None and set(self.obj_types) != set(self.obj_types):
-            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}:\n '
-                                 f'The CfgCollection found at {self.collection_path} contains '
-                                 f'{collection.obj_types.__name__} instead of {self.obj_types}.')
         return collection
 
     def valid_refs(self, cfg_dict: CfgDict | None = None):
         return set(self.collection(cfg_dict).keys())
 
-    def _check_value(self, value, cfg_dict: CfgDict | None = None):
-        if not isinstance(value, str):
-            raise AttrValueError(f'Reference key must be string not {type(value)}.')
+    def _check_value(self, name, cfg_dict: CfgDict | None = None):
+        if not isinstance(name, str):
+            raise AttrValueError(f'Reference key must be string not {type(name)}')
 
         if cfg_dict is not None:
             referenced_collection = self.collection(cfg_dict)
-            try:
-                return referenced_collection[value]
-            except KeyError:
+            if name not in referenced_collection:
                 from .cfg_parser import format2str
-                raise AttrValueError(f'Unknown reference key "{value}". \n'
+                raise AttrValueError(f'Unknown reference key "{name}"',
                                      f'Must be one of {format2str(referenced_collection.keys())}.')
 
-        return value
+        return name
 
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+
+        name = super(RefAttr, self).__get__(instance, owner)
+        collection = self.collection(instance)
+        if not isinstance(collection, CfgCollection):
+            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}\n '
+                                   f'Attribute found at path "{self.collection_path}" is not a CfgCollection '
+                                   f'but {type(collection).__name__}.')
+
+        if self.obj_types is not None and set(self.obj_types) != set(collection.obj_types):
+            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}:\n '
+                                   f'The CfgCollection found at {self.collection_path} contains '
+                                   f'{collection.obj_types.__name__} instead of {self.obj_types}.')
+
+        try:
+            return collection[name]
+        except KeyError:
+            from .cfg_parser import format2str
+            raise AttrValueError(f'Unknown reference key "{name}"',
+                                 f'Must be one of {format2str(collection.keys())}.')

@@ -478,7 +478,7 @@ def crop_pad(img, center, size):
 ########################################################################################################################
 def bind_args(f, args=(), kwargs=None):
     bind = bind_args_partial(f, args, kwargs)
-    missing_args = set(not_optional_args(f)).intersection(bind.keys())
+    missing_args = set(not_optional_args(f)).difference(bind.keys())
     missing_args.difference_update({'self'})
     if missing_args:
         raise ValueError("%s() missing %i required arguments: '%s'"

@@ -73,7 +73,7 @@ datasets:
     train:
         source: 'MESSIDOR-train'
         augment:
-            augmentation: defult
+            augmentation: default
             factor: 2
 
     validate:

@@ -77,7 +77,10 @@ class CfgParser:
 
         CfgParser.resolve_refs(cfg, inplace=True)
         if parse_obj:
-            CfgParser.parse_registered_cfg(cfg, inplace=True)
+            try:
+                CfgParser.parse_registered_cfg(cfg, inplace=True)
+            except ParseError as e:
+                raise ParseError(error=e.error, mark=e.mark, info=e.info) from None
         return cfg
 
     def get_version(self, i):
@@ -189,11 +192,24 @@ class CfgParser:
     def parse_registered_cfg(cfg_dict: CfgDict, inplace=False):
         if not inplace:
             cfg_dict = cfg_dict.copy()
+
         for path, cfg_obj_class in _registered_cfg_object.items():
             if path in cfg_dict:
                 cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path], mark=cfg_dict.get_mark(path), path=path)
+        for path, cfg_obj_class in _registered_cfg_object.items():
+            if path in cfg_dict:
+                from .cfg_object import ObjCfg, CfgCollection
+                obj = cfg_dict[path]
+                if isinstance(obj, ObjCfg):
+                    obj.check_integrity(True)
+                elif isinstance(obj, CfgCollection):
+                    for item in obj.values():
+                        if isinstance(item, ObjCfg):
+                            item.check_integrity(True)
+
         for path in _registered_cfg_object.keys():
-            cfg_dict[path]._init_after_populate()
+            cfg_dict[path].init_after_populate()
+
         return cfg_dict
 
 

@@ -55,12 +55,16 @@ class DatasetSourceRef(Cfg.Obj):
 
 class DatasetCfg(Cfg.Obj):
     source = Cfg.obj_list(main_key='source', obj_types=DatasetSourceRef)
-    augment: AugmentCfg = Cfg.obj(default='', shortcut='augmentation')
+    augment: AugmentCfg = Cfg.obj(default=None, shortcut='augmentation', nullable=True)
 
     def read_indexes(self):
         for sourceRef in list(self.source):
             source: DataSource = sourceRef.source
+            index = source.fetch_indexes()
 
+        
+    def dataset(self):
+        return Dataset(self, fields=self.root()['datasets.fields'])
 
 
 @Cfg.register_obj('datasets')
@@ -71,9 +75,6 @@ class DatasetsCfg(Cfg.Obj):
     train: DatasetCfg = Cfg.obj(shortcut='source')
     validate: DatasetCfg = Cfg.obj(shortcut='source')
     test = Cfg.collection(obj_types=DatasetCfg)
-
-    def datasets(self):
-        pass
 
 
 class Dataset(TorchDataset):

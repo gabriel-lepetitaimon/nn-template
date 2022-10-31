@@ -139,11 +139,16 @@ class CfgDict(dict):
 
     def __init__(self, data: Dict[str, any] = None, parent=None):
         super(CfgDict, self).__init__()
-        self.mark = None
-        self.child_mark = {}
-
-        self._parent = None if parent is None else weakref.ref(parent)
-        self._name = None
+        if isinstance(data, CfgDict):
+            self.mark = data.mark
+            self.child_mark = data.child_mark
+            self._parent = data._parent if parent is None else weakref.ref(parent)
+            self._name = data._name
+        else:
+            self.mark = None
+            self.child_mark = {}
+            self._parent = None if parent is None else weakref.ref(parent)
+            self._name = None
 
         if data is not None:
             self.update(data)
@@ -598,7 +603,13 @@ class CfgList(CfgCollection):
     def __setitem__(self, key, value):
         if not isinstance(value, (dict, CfgDict)):
             value = CfgDict({self.id_key: value}, parent=self)
+            value.mark = self.child_mark.get(key, None)
+            if value.mark is not None:
+                value.child_mark = {self.id_key: value.mark}
         else:
             value = value.copy()
             value[self.id_key] = key
+            mark = self.child_mark.get(key, None)
+            if mark is not None:
+                value.child_mark[self.id_key] = mark
         super(CfgList, self).__setitem__(key, value)
