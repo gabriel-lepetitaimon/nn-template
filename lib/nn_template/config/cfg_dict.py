@@ -600,6 +600,9 @@ class CfgList(CfgCollection):
     def __iter__(self):
         return iter(self.values())
 
+    def list(self):
+        return list(self)
+
     def __setitem__(self, key, value):
         if not isinstance(value, (dict, CfgDict)):
             value = CfgDict({self.id_key: value}, parent=self)

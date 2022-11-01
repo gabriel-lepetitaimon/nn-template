@@ -56,11 +56,10 @@ class DatasetSourceRef(Cfg.Obj):
 class DatasetCfg(Cfg.Obj):
     source = Cfg.obj_list(main_key='source', obj_types=DatasetSourceRef)
     augment: AugmentCfg = Cfg.obj(default=None, shortcut='augmentation', nullable=True)
+    shuffle = Cfg.oneOf(True, False, 'auto', default='auto')
 
-    def read_indexes(self):
-        for sourceRef in list(self.source):
-            source: DataSource = sourceRef.source
-            index = source.fetch_indexes()
+    def get_indexes(self):
+        src_len = [len(source.source.indexes) for source in self.source]
 
         
     def dataset(self):
