@@ -126,6 +126,7 @@ class Cfg:
     int = IntAttr
     float = FloatAttr
     str = StrAttr
+    range = RangeAttr
     oneOf = OneOfAttr
     bool = BoolAttr
     strMap = StrMapAttr

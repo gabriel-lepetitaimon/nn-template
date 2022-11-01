@@ -1,5 +1,7 @@
 import os.path as P
 
+import math
+import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset as TorchDataset
 
@@ -44,13 +46,14 @@ class DataSource(Cfg.Obj):
         return idx
 
     def get_sample(self, i):
-        idx = self.fetch_indexes().iloc[i]
+        idx = self.indexes.iloc[i]
         return {name: src.fetch_data(idx[name]) for name, src in self.data.items()}
 
 
 class DatasetSourceRef(Cfg.Obj):
     source: DataSource = Cfg.ref('datasets.sources')
-    factor = Cfg.float(1)
+    factor = Cfg.int(1)
+    range: range = Cfg.range(None)
 
 
 class DatasetCfg(Cfg.Obj):
@@ -59,8 +62,14 @@ class DatasetCfg(Cfg.Obj):
     shuffle = Cfg.oneOf(True, False, 'auto', default='auto')
 
     def get_indexes(self):
-        src_len = [len(source.source.indexes) for source in self.source]
-
+        src_indexes = []
+        for sourceRef in self.source:
+            source: DataSource = sourceRef.source
+            src_len = len(source.indexes)
+            start = sourceRef.range.start
+            idx = np.arrange(src_len)
+            if
+        return np.concat([np.stack(np.ones(np.uint), np.arrange for ])
         
     def dataset(self):
         return Dataset(self, fields=self.root()['datasets.fields'])
@@ -87,3 +96,31 @@ class Dataset(TorchDataset):
 
     def __getitem__(self, item):
         pass
+
+def interpret_range(range, n):
+    if range.start is None:
+        start = 0
+    elif -1 < range.start < 0:
+        start = math.floor((1+range.start) * n)
+    elif 0 <= range.start <= 1:
+        start = math.floor(range.start * n)
+    else:
+        start = range.start % n
+
+    if range.stop is None:
+        stop = n
+    elif -1 < range.stop < 0:
+        stop = math.floor((1 + range.stop) * n)
+    elif 0 <= range.start <= 1:
+        stop = math.floor(range.stop * n)
+    else:
+        stop = range.stop % n
+
+    if range.step is None:
+        step = 1
+    elif -1 < range.step < 1:
+        step = range.step * n
+    else:
+        step = math.floor(range.step)
+
+    return range(start, stop, step)

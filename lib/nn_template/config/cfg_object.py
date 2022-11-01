@@ -345,7 +345,11 @@ class FloatAttr(CfgAttr):
         super(FloatAttr, self).__init__(default)
 
     @staticmethod
-    def interpret(value) -> float:
+    def interpret(value, nullable=False) -> float | None:
+        if nullable:
+            if value is None or value == '':
+                return None
+
         if isinstance(value, str):
             value = value.strip()
             if value.endswith('%'):
@@ -371,6 +375,23 @@ class FloatAttr(CfgAttr):
             raise AttrValueError(f"Invalid value for attribute {self.name}",
                                  f"Provided value: {value:.4e}, exceed the maximum value {self.max:.4e}")
         return value
+
+
+class RangeAttr(CfgAttr):
+    def __init__(self, default=UNDEFINED):
+        super(RangeAttr, self).__init__(default)
+
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
+        invalid_value = AttrValueError(f"{value} is not a valid range for attribute {self.name}")
+        try:
+            if isinstance(value, str):
+                interval = value.split(':')
+                if not 0 > len(interval) >= 3:
+                    raise invalid_value
+                return range(*[FloatAttr.interpret(_, nullable=True) for _ in interval])
+            return range(FloatAttr.interpret(value, nullable=True))
+        except TypeError:
+            raise invalid_value
 
 
 class StrAttr(CfgAttr):
