@@ -5,6 +5,8 @@ import numpy as np
 from collections import OrderedDict
 from copy import copy
 
+import torch
+
 from ..config import Cfg
 from .random_dist import RandomDistribution as RD
 from .random_dist import RandDistAttr
@@ -50,7 +52,7 @@ class ElasticCfg(Cfg.Obj):
 
 
 class CropCfg(Cfg.Obj):
-    patch_shape = Cfg.shape(None, dim=2)
+    shape = Cfg.shape(None, dim=2)
     padding = Cfg.shape(0, dim=2)
 
 
@@ -59,7 +61,7 @@ class DataAugmentationCfg(Cfg.Obj):
     flip = Cfg.oneOf(False, True, 'horizontal', 'vertical', default=False)
     rotation: RotationCfg = Cfg.obj(default=False, shortcut='enabled')
     elastic: ElasticCfg = Cfg.obj(default=False, shortcut='enabled')
-    random_crop: CropCfg = Cfg.obj(default=None, shortcut='patch_shape')
+    random_crop: CropCfg = Cfg.obj(default=None, shortcut='shape')
 
     gamma = RandDistAttr(default=None, symetric=True)
     brightness = RandDistAttr(default=None, symetric=True)
@@ -99,8 +101,8 @@ class DataAugmentationCfg(Cfg.Obj):
         if self.hue or self.saturation or self.value:
             da.hsv(hue=self.hue, saturation=self.saturation, value=self.value)
 
-        if self.random_crop.patch_shape:
-            da.crop(shape=self.random_crop.patch_shape, padding=self.random_crop.padding)
+        if self.random_crop.shape:
+            da.crop(shape=self.random_crop.shape, padding=self.random_crop.padding)
 
         return da
 
@@ -132,7 +134,7 @@ def augment_method(augment_type=None):
 class DataAugment:
     def __init__(self, seed=1234):
         self._augment_stack = []
-        self._rng = np.random.default_rng(seed)
+        self._rng = np.random
 
     def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
         if rng is None:
@@ -190,12 +192,7 @@ class DataAugment:
                 data[field] = fields_f(data[field], rng_states)
 
             if to_torch:
-                def to_tensor(x):
-                    import torch
-                    if x.ndim == 3:
-                        x = x.transpose(2, 0, 1)
-                    return torch.from_numpy(x)
-                return {k: to_tensor(v) for k, v in data.items()}
+                return {k: to_tensor(k in images)(v) for k, v in data.items()}
 
             return data
 
@@ -543,3 +540,17 @@ def str2tuple(v):
     if isinstance(v, str):
         return tuple(_.strip() for _ in v if _.strip())
     return v
+
+
+def to_tensor(normalize=False):
+    import torch
+    def np2torch(x):
+        if x.ndim == 3:
+            x = x.transpose(2, 0, 1)
+        return torch.from_numpy(x)
+
+    def normalize2torch(x):
+        x = x.to(torch.float32)/128-1
+        return np2torch(x)
+
+    return normalize2torch if normalize else np2torch

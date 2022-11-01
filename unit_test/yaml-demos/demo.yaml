@@ -67,27 +67,31 @@ training:
 datasets:
     fields:
         x: raw
-        y: "{{gt}} > 1"
-        mask: "{{gt}} > 0"
+        y: gt > 1
+        mask: gt > 0
 
     train:
-        source: 'MESSIDOR-train'
+        source: DRIVE-train-val
+        range: ':-3'
         augment:
             augmentation: default
             factor: 2
+            images: x
+            labels: y,mask
 
     validate:
-        source: 'MESSIDOR-val'
+        source: DRIVE-train-val
+        range: '-3:'
         cache: True
 
     test:
-        "test":
-            source: 'MESSIDOR-test'
+        "MESSIDOR":
+            source: 'DRIVE-test'
             cache: True
 
     sources:
-        MESSIDOR-train:
-              dir-prefix: '/home/gaby/These/Data/Fundus/DRIVE/train/'
+        DRIVE-train-val:
+              dir-prefix: '/home/gaby/These/Data/Fundus/Vessels/DRIVE/train/'
 
               data:
                   raw:
@@ -100,12 +104,8 @@ datasets:
                     directory: '2-label_AV'
                     $: ..raw
 
-        MESSIDOR-val:
-              $: ..MESSIDOR-train
-              dir-prefix: 'PATH/val'
-
-        MESSIDOR-test:
-              $: ..MESSIDOR-train
+        DRIVE-test:
+              $: ..DRIVE-train-val
               dir-prefix: 'PATH/test'
 
 ###########################################################

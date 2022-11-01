@@ -7,7 +7,7 @@ from torch.utils.data import Dataset as TorchDataset
 
 from ..config import Cfg
 from .data_sources import DataCollectionsAttr
-from ..data_augmentation import DataAugmentationCfg
+from ..data_augmentation import DataAugmentationCfg, DataAugment
 
 
 DEFAULT_DATA_PATH = P.join(P.abspath(P.dirname(__file__)), '../../DATA')
@@ -16,6 +16,10 @@ DEFAULT_DATA_PATH = P.join(P.abspath(P.dirname(__file__)), '../../DATA')
 class AugmentCfg(Cfg.Obj):
     augmentation: DataAugmentationCfg = Cfg.ref('data-augmentation')
     factor: int = 1
+    images = Cfg.str(None, nullable=True)
+    labels = Cfg.str(None, nullable=True)
+    angles = Cfg.str(None, nullable=True)
+    vectors = Cfg.str(None, nullable=True)
 
 
 class DataSource(Cfg.Obj):
@@ -35,9 +39,14 @@ class DataSource(Cfg.Obj):
         if len(indexes) == 1:
             return pd.DataFrame(indexes)
         else:
-            idx = pd.DataFrame()
+            idx = None
             for name, src_idx in indexes.items():
-                idx = pd.merge(idx, pd.DataFrame({name:src_idx}))
+                src_idx = pd.DataFrame({name: src_idx})
+                if idx is None:
+                    idx = src_idx
+                else:
+                    print(idx.index.names, src_idx.index.names)
+                    idx = pd.merge(idx, src_idx, left_index=True, right_index=True)
             return idx
 
     def update_indexes(self):
@@ -52,24 +61,57 @@ class DataSource(Cfg.Obj):
 
 class DatasetSourceRef(Cfg.Obj):
     source: DataSource = Cfg.ref('datasets.sources')
-    factor = Cfg.int(1)
-    range: range = Cfg.range(None)
+    factor = Cfg.int(1, min=1)
+    range = Cfg.range(None)
+
+    def interpret_range(self, n):
+        if self.range is None:
+            return range(0, n, 1)
+        if self.range.start is None:
+            start = 0
+        elif -1 < self.range.start < 0:
+            start = math.floor((1+self.range.start) * n)
+        elif 0 <= self.range.start <= 1:
+            start = math.floor(self.range.start * n)
+        else:
+            start = self.range.start % n
+
+        if self.range.stop is None:
+            stop = n
+        elif -1 < self.range.stop < 0:
+            stop = math.floor((1 + self.range.stop) * n)
+        elif 0 <= self.range.start <= 1:
+            stop = math.floor(self.range.stop * n)
+        else:
+            stop = self.range.stop % n
+
+        if self.range.step is None:
+            step = 1
+        elif -1 < self.range.step < 1:
+            step = self.range.step * n
+        else:
+            step = math.floor(self.range.step)
+
+        return self.range(start, stop, step)
 
 
 class DatasetCfg(Cfg.Obj):
     source = Cfg.obj_list(main_key='source', obj_types=DatasetSourceRef)
     augment: AugmentCfg = Cfg.obj(default=None, shortcut='augmentation', nullable=True)
-    shuffle = Cfg.oneOf(True, False, 'auto', default='auto')
 
     def get_indexes(self):
         src_indexes = []
         for sourceRef in self.source:
             source: DataSource = sourceRef.source
             src_len = len(source.indexes)
-            start = sourceRef.range.start
-            idx = np.arrange(src_len)
-            if
-        return np.concat([np.stack(np.ones(np.uint), np.arrange for ])
+            interval = sourceRef.interpret_range(src_len)
+            idx = np.arange(interval.start, interval.stop, interval.step, dtype=np.uint32)
+            if sourceRef.factor > 1:
+                idx = np.repeat(idx, sourceRef.factor)
+            src_indexes.append(idx)
+
+        return np.concatenate([np.stack([np.ones((len(idx),), np.uint32)*i, idx], 1)
+                               for i, idx in enumerate(src_indexes)], axis=0)
         
     def dataset(self):
         return Dataset(self, fields=self.root()['datasets.fields'])
@@ -89,38 +131,33 @@ class Dataset(TorchDataset):
     def __init__(self, dataset_cfg: DatasetCfg, fields: dict):
         super(Dataset, self).__init__()
         self.dataset_cfg = dataset_cfg
-        self.field_cfg = fields
+        self.fields_cfg = fields
+
+        self._idxs = self.dataset_cfg.get_indexes()
+        self._srcs = self.dataset_cfg.source.list()
+
+        kwargs = dict(images=dataset_cfg.augment.images,
+                      labels=dataset_cfg.augment.labels,
+                      angles=dataset_cfg.augment.angles,
+                      vectors=dataset_cfg.augment.vectors,
+                      to_torch=True, transpose_input=False)
+        if self.dataset_cfg.augment is not None:
+            self._augment = self.dataset_cfg.augment.augmentation.data_augment.compile(**kwargs)
+        else:
+            self._augment = DataAugment().compile(**kwargs)
 
     def __len__(self):
-        pass
+        return len(self._idxs)
 
     def __getitem__(self, item):
-        pass
-
-def interpret_range(range, n):
-    if range.start is None:
-        start = 0
-    elif -1 < range.start < 0:
-        start = math.floor((1+range.start) * n)
-    elif 0 <= range.start <= 1:
-        start = math.floor(range.start * n)
-    else:
-        start = range.start % n
-
-    if range.stop is None:
-        stop = n
-    elif -1 < range.stop < 0:
-        stop = math.floor((1 + range.stop) * n)
-    elif 0 <= range.start <= 1:
-        stop = math.floor(range.stop * n)
-    else:
-        stop = range.stop % n
-
-    if range.step is None:
-        step = 1
-    elif -1 < range.step < 1:
-        step = range.step * n
-    else:
-        step = math.floor(range.step)
-
-    return range(start, stop, step)
+        id_src, id_sample = self._idxs[item]
+        sample = self._srcs[id_src].get_sample(id_sample)
+        fields = {}
+        for field, expr in self.fields_cfg.items():
+            if expr in sample:
+                fields[field] = sample[expr]
+            else:
+                import torch
+                fields[field] = eval(expr, {'np': np, 'torch': torch}, sample)
+        fields = self._augment(**fields)
+        return fields
