@@ -1,4 +1,7 @@
 import os
+
+import numpy as np
+
 from ..config import Cfg
 
 
@@ -58,13 +61,30 @@ class FilesPathLoader(DataLoader):
 
 class ImageLoader(FilesPathLoader):
     resize = Cfg.shape(dim=2, default=None, nullable=True)
+    interpolation = Cfg.oneOf('auto', 'nearest', 'linear', 'area', 'cubic', 'lanczos4', default='auto')
 
     def fetch_data(self, path):
         import cv2
         img = cv2.imread(path)
         if self.resize:
-            img = cv2.resize(img, self.resize)
+            img = cv2.resize(img, self.resize, self.interp_resize)
         return img
+
+    @property
+    def interp_resize(self):
+        import cv2
+        if self.interpolation == 'auto':
+            if isinstance(self, (LabelImage, MaskImage)):
+                return cv2.INTER_AREA
+            else:
+                return cv2.INTER_CUBIC
+        return {
+            'nearest': cv2.INTER_NEAREST,
+            'linear': cv2.INTER_LINEAR,
+            'area': cv2.INTER_AREA,
+            'cubic': cv2.INTER_CUBIC,
+            'lanczos4': cv2.INTER_LANCZOS4,
+        }[self.interpolation]
 
 
 class ColorImage(ImageLoader):
@@ -75,12 +95,41 @@ class ColorImage(ImageLoader):
 
 
 class LabelImage(ImageLoader):
+    labelize = Cfg.collection(str, default={})
+
     def fetch_data(self, path):
+        import cv2
+        import numpy as np
         img = super(LabelImage, self).fetch_data(path)
-        return img
+
+        label = np.zeros(img.shape[:2], np.uint8)
+        channels = {'img': img, 'b': img[..., 0], 'g': img[..., 1], 'r': img[..., 2]}
+        libs = {'np': np, 'cv2': cv2}
+        for v, expr in self.labelize.items():
+            from ..config.cfg_object import IntAttr
+            v = IntAttr.interpret(v)
+            mask = eval(expr, libs, channels) & (label == 0)
+            label[mask] = v
+
+        return label
 
 
 class MaskImage(ImageLoader):
+    mask: str = 'mean'
+
     def fetch_data(self, path):
         img = super(MaskImage, self).fetch_data(path)
-        return img > 1
+
+        if self.mask == 'mean':
+            return img.mean(axis=2) > 128
+        else:
+            import cv2
+            import numpy as np
+            channels = {'img': img, 'b': img[..., 0], 'g': img[..., 1], 'r': img[..., 2]}
+            libs = {'np': np, 'cv2': cv2}
+            mask = eval(self.mask, channels, libs)
+            if mask.dtype == np.uint8:
+                mask = mask > 255
+            elif mask.dtype == np.float:
+                mask = mask > .5
+            return mask

@@ -134,7 +134,7 @@ def augment_method(augment_type=None):
 class DataAugment:
     def __init__(self, seed=1234):
         self._augment_stack = []
-        self._rng = np.random
+        self._rng = np.random.default_rng(seed)
 
     def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
         if rng is None:
@@ -143,12 +143,20 @@ class DataAugment:
             rng = np.random.default_rng(rng)
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
+        elif not images:
+            images = ()
         if isinstance(labels, str):
             labels = [_.strip() for _ in labels.split(',') if _.strip()]
+        elif not labels:
+            labels = ()
         if isinstance(angles, str):
             angles = [_.strip() for _ in angles.split(',') if _.strip()]
+        elif not angles:
+            angles = ()
         if isinstance(vectors, str):
             vectors = [_.strip() for _ in vectors.split(',') if _.strip()]
+        elif not vectors:
+            vectors = ()
 
         images_f = None
         labels_f = None
@@ -192,7 +200,7 @@ class DataAugment:
                 data[field] = fields_f(data[field], rng_states)
 
             if to_torch:
-                return {k: to_tensor(k in images)(v) for k, v in data.items()}
+                return {k: to_tensor(v) for k, v in data.items()}
 
             return data
 
@@ -235,7 +243,7 @@ class DataAugment:
             # Rerun the function generating augment() with the custom provided parameters
             params = bind_args_partial(f, kwargs=kwargs)
             f_params.update(params)
-            f_augment, *rng_params = match_params(f, self=self, **params)
+            f_augment, *rng_params = match_params(f, self=self, **f_params)
 
             if isinstance(f_augment, dict):
                 f_pre = f_augment.get('pre', None)
@@ -396,7 +404,7 @@ class DataAugment:
             center = (int(c*(s-p) + p//2)
                       for s, p, c in zip(x.shape, padding, (centerY, centerX)))
             return crop_pad(x, center, shape)
-        return augment, RD.float(1), RD.float(1)
+        return augment, RD.uniform(1), RD.uniform(1)
 
     @augment_method('color')
     def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
@@ -429,9 +437,9 @@ class DataAugment:
 
     @augment_method('color')
     def hsv(self, hue=None, saturation=None, value=None):
-        hue = RD.constant(0) if hue is not None else RD.auto(hue, symetric=True)
-        saturation = RD.constant(0) if saturation is not None else RD.auto(saturation, symetric=True)
-        value = RD(0) if value is not None else RD.auto(value, symetric=True)
+        hue = RD.constant(0) if hue is None else RD.auto(hue, symetric=True)
+        saturation = RD.constant(0) if saturation is None else RD.auto(saturation, symetric=True)
+        value = RD.constant(0) if value is None else RD.auto(value, symetric=True)
 
         a_min = np.array([0, 0, 0], np.uint8)
         a_max = np.array([179, 255, 255], np.uint8)
@@ -542,15 +550,8 @@ def str2tuple(v):
     return v
 
 
-def to_tensor(normalize=False):
+def to_tensor(x):
     import torch
-    def np2torch(x):
-        if x.ndim == 3:
-            x = x.transpose(2, 0, 1)
-        return torch.from_numpy(x)
-
-    def normalize2torch(x):
-        x = x.to(torch.float32)/128-1
-        return np2torch(x)
-
-    return normalize2torch if normalize else np2torch
+    if x.ndim == 3:
+        x = x.transpose(2, 0, 1)
+    return torch.from_numpy(x)

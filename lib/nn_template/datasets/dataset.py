@@ -45,7 +45,6 @@ class DataSource(Cfg.Obj):
                 if idx is None:
                     idx = src_idx
                 else:
-                    print(idx.index.names, src_idx.index.names)
                     idx = pd.merge(idx, src_idx, left_index=True, right_index=True)
             return idx
 
@@ -117,9 +116,37 @@ class DatasetCfg(Cfg.Obj):
         return Dataset(self, fields=self.root()['datasets.fields'])
 
 
+class DatasetFields(Cfg.Obj):
+    images = Cfg.collection(str, default={})
+    labels = Cfg.collection(str, default={})
+    vectors = Cfg.collection(str, default={})
+    angles = Cfg.collection(str, default={})
+
+    def all_fields(self):
+        fields = {}
+        for f in (self.images, self.labels, self.vectors, self.angles):
+            fields.update(f)
+        return fields
+
+    @property
+    def images_keys(self):
+        return list(self.images.keys())
+
+    @property
+    def labels_keys(self):
+        return list(self.labels.keys())
+
+    @property
+    def vectors_keys(self):
+        return list(self.vectors.keys())
+
+    @property
+    def angles_keys(self):
+        return list(self.angles.keys())
+
 @Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
-    fields = Cfg.collection(str)
+    fields: DatasetFields = Cfg.obj()
     sources = Cfg.collection(DataSource)
 
     train: DatasetCfg = Cfg.obj(shortcut='source')
@@ -128,18 +155,18 @@ class DatasetsCfg(Cfg.Obj):
 
 
 class Dataset(TorchDataset):
-    def __init__(self, dataset_cfg: DatasetCfg, fields: dict):
+    def __init__(self, dataset_cfg: DatasetCfg, fields: DatasetFields):
         super(Dataset, self).__init__()
         self.dataset_cfg = dataset_cfg
-        self.fields_cfg = fields
+        self.fields = fields
 
         self._idxs = self.dataset_cfg.get_indexes()
-        self._srcs = self.dataset_cfg.source.list()
+        self._srcs = [_.source for _ in self.dataset_cfg.source.list()]
 
-        kwargs = dict(images=dataset_cfg.augment.images,
-                      labels=dataset_cfg.augment.labels,
-                      angles=dataset_cfg.augment.angles,
-                      vectors=dataset_cfg.augment.vectors,
+        kwargs = dict(images=fields.images_keys,
+                      labels=fields.labels_keys,
+                      angles=fields.angles_keys,
+                      vectors=fields.vectors_keys,
                       to_torch=True, transpose_input=False)
         if self.dataset_cfg.augment is not None:
             self._augment = self.dataset_cfg.augment.augmentation.data_augment.compile(**kwargs)
@@ -153,7 +180,7 @@ class Dataset(TorchDataset):
         id_src, id_sample = self._idxs[item]
         sample = self._srcs[id_src].get_sample(id_sample)
         fields = {}
-        for field, expr in self.fields_cfg.items():
+        for field, expr in self.fields.all_fields().items():
             if expr in sample:
                 fields[field] = sample[expr]
             else:

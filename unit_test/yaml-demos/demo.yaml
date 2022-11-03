@@ -66,18 +66,19 @@ training:
 ###########################################################
 datasets:
     fields:
-        x: raw
-        y: gt > 1
-        mask: gt > 0
+        images:
+            x: raw
+        labels:
+            y: gt > 1
+            mask: gt > 0
 
     train:
         source: DRIVE-train-val
         range: ':-3'
+            
         augment:
             augmentation: default
             factor: 2
-            images: x
-            labels: y,mask
 
     validate:
         source: DRIVE-train-val
@@ -85,7 +86,7 @@ datasets:
         cache: True
 
     test:
-        "MESSIDOR":
+        "DRIVE":
             source: 'DRIVE-test'
             cache: True
 
@@ -98,15 +99,21 @@ datasets:
                     type: ColorMap
                     directory: '0-images'
                     path: '{ID:n}_training.png'
-                    resize: 1500
+                    # resize: 1500
                   gt:
                     type: LabelMap
                     directory: '2-label_AV'
+                    labelize:
+                        1: r + g > 125
+                        2: b > 125
                     $: ..raw
 
         DRIVE-test:
               $: ..DRIVE-train-val
-              dir-prefix: 'PATH/test'
+              dir-prefix: '/home/gaby/These/Data/Fundus/Vessels/DRIVE/test/'
+              data:
+                  raw.path: '{ID:n}_test.tif'
+                  gt.path: '{ID:n}_test.png'
 
 ###########################################################
 #              ---   DATA-AUGMENTATIONS   ---             #
@@ -116,12 +123,12 @@ data-augmentation:
         flip: True
         rotation: True
         elastic:
-            alpha: ~optuna.float(low=1, high=50)
+            alpha: 40
             sigma: 20
             alpha-affine: 50
-        random-crop: 512
+        # random-crop: 512
 
-        # gamma: ±0.2
+        gamma: ±0.2
         # hue: ±20
         # saturation: ±20
 
