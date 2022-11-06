@@ -97,7 +97,7 @@ def _type2attr(typehint, value=UNDEFINED):
             elif isinstance(typehint, CfgCollection):
                 attr = lambda default: CollectionAttr(obj_types=typehint.obj_types, default=default)
             else:
-                attr = Any
+                attr = AnyAttr
 
     if isinstance(value, CfgAttr):
         if type(value) != attr:
@@ -269,7 +269,11 @@ class CfgAttr:
             return value
 
         if self._checker is not None:
-            value = self._checker(value, cfg_dict)
+            try:
+                value = self._checker(value, cfg_dict)
+            except (TypeError, ValueError):
+                raise AttrValueError(f'Invalid value for attribute {self.name}',
+                                     f'Provided value was: {repr(value)}')
         return self._check_value(value, cfg_dict)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
@@ -456,6 +460,16 @@ class StrMapAttr(CfgAttr):
                                  f"Must be one of {list(self.map.keys())}.")
 
 
+class StrListAttr(CfgAttr):
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
+        if isinstance(value, str):
+            return [_.strip() for _ in value.split(',') if _.strip()]
+        if isinstance(value, Iterable) and all(isinstance(_, str) for _ in value):
+            return list(value)
+        raise AttrValueError(f"Invalid strings list for attribute {self.name}",
+                             f"Provided value was: {value}")
+
+
 class ObjAttr(CfgAttr):
     def __init__(self, default='__default__', shortcut=None, obj_type=None, nullable=None):
         if obj_type is not None:
@@ -517,7 +531,7 @@ class ObjListAttr(CfgAttr):
         return value
 
 
-class Any(CfgAttr):
+class AnyAttr(CfgAttr):
     pass
 
 

@@ -7,11 +7,14 @@ import os
 import os.path as P
 from json import dump
 
-from src.config import parse_arguments
-from src.datasets import load_dataset
+from nn_template import Cfg
+import nn_template.model
+import nn_template.datasets
+import nn_template.data_augmentation
+import nn_template.optuna
+import nn_template.training
+
 from src.trainer import Binary2DSegmentation, ExportValidation
-from src.trainer.loggers import Logs
-from steered_cnn.models import setup_model
 
 
 def run_train(**opt):
@@ -19,20 +22,6 @@ def run_train(**opt):
     cfg = parse_arguments(opt)
     args = cfg['script-arguments']
 
-    # --- Set Seed --
-    seed = cfg.training.get('seed', None)
-    if seed == "random":
-        seed = int.from_bytes(os.getrandom(32), 'little', signed=False)
-    elif isinstance(seed, (tuple, list)):
-        seed = seed[cfg.trial.ID % len(seed)]
-    if isinstance(seed, int):
-        import random
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        cfg.training['seed'] = seed
-    elif seed is not None:
-        print(f"Seed can't be interpreted as int and will be ignored.")
 
     # --- Setup logs ---
     logs = Logs()

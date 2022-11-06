@@ -130,7 +130,9 @@ class Cfg:
     oneOf = OneOfAttr
     bool = BoolAttr
     strMap = StrMapAttr
+    strList = StrListAttr
     obj = ObjAttr
+    any = AnyAttr
     collection = CollectionAttr
     obj_list = ObjListAttr
     multi_type_collection = MultiTypeCollectionAttr

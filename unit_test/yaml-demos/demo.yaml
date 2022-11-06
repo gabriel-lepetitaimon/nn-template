@@ -1,8 +1,7 @@
 experiment:
     name: SteeredCNN-av
-    exp: RotAug
-    (sub): base:none
-    (id): auto
+    project: RotAug
+    (group): RunGroup
     (tags):
         ...
 
@@ -14,7 +13,7 @@ optuna:
     study_name: 'test'
     sampler:
         type: TPE
-        n_startup_trials: 20
+        n_startup_trials: 10
     pruner:
         type: Hyperband
         
@@ -27,7 +26,7 @@ task:
     type: img-seg
     metrics: kappa, acc, sen, spe, iou, roc
     optimize: val-kappa
-    (optimize-mode): max
+    (direction): max
     (n-classes): binary
 
 
@@ -137,6 +136,6 @@ data-augmentation:
 #                     ---   MISC   ---                    #
 ###########################################################
 hardware:
-    num-worker: auto
+    num-worker: 0
     half-precision: False
     minibatch-splits: 2
