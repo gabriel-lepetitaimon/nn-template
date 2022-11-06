@@ -74,6 +74,10 @@ class OptunaCfg(Cfg.Obj):
             self._study = study
         return study
 
+    @property
+    def trial(self):
+        return getattr(self, '_trial', None)
+
     def create_study(self, load_if_exists=False):
         kwargs = {}
         if self.sampler:
@@ -126,8 +130,29 @@ class OptunaCfg(Cfg.Obj):
             self.engine.suggest(trial)
         return trial
 
+    def report(self, optimized_value, step):
+        trial = self.trial
+        if trial:
+            trial.report(optimized_value, step)
+
+    def should_prune(self):
+        trial = self.trial
+        if trial:
+            prune = trial.should_prune()
+            if prune:
+                self.study.tell(self.trial, state=optuna.trial.TrialState.PRUNED)
+            trial = None
+            return prune
+        return False
+
+    def tell(self, optimized_value):
+        trial = self.trial
+        if trial:
+            self.study.tell(self.trial, optimized_value)
+            trial = None
 
 # =====================================================================================================================
+
 
 @register_hp_optimizer_engine
 class OptunaEngine(HyperParametersOptimizerEngine):
