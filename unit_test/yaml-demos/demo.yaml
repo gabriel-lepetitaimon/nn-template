@@ -1,9 +1,13 @@
 experiment:
-    name: SteeredCNN-av
-    project: RotAug
-    (group): RunGroup
-    (tags):
-        ...
+    name: "Run Name"
+    project: "WandB Project Name"
+
+    group: None     # WandB run group (optional)
+    job-type: None  # WandB run job-type (optional)
+    tags: None      # WandB run tags (optional)
+    dir: None       # WandB run artefact directory (optional)
+    notes: None     # WandB run notes and comments (optional)
+    entity: None    # WandB entity where the run should be registered (optional)
 
 
 ###########################################################
@@ -26,8 +30,8 @@ task:
     type: img-seg
     metrics: kappa, acc, sen, spe, iou, roc
     optimize: val-kappa
-    (direction): max
-    (n-classes): binary
+    direction: max
+    n-classes: binary
 
 
 ###########################################################
@@ -137,5 +141,6 @@ data-augmentation:
 ###########################################################
 hardware:
     num-worker: 0
-    half-precision: False
     minibatch-splits: 2
+    gpus: None
+    precision: None

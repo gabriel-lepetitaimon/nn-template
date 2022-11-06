@@ -7,7 +7,10 @@ class ExperimentCfg(Cfg.Obj):
     run_id = Cfg.int(None)
     project = Cfg.str(None)
     group = Cfg.str(None)
+    job_type = Cfg.str(None)
     tags = Cfg.strList([])
+    dir = Cfg.str(None)
+    notes = Cfg.str(None)
 
     @property
     def run_name(self):
@@ -20,6 +23,11 @@ class ExperimentCfg(Cfg.Obj):
         wandb.init(
             name=self.run_name,
             project=self.project,
-            config=self.root().to_dict(exportable=True),
+            job_type=self.job_type,
             tags=self.tags,
+            config=self.root().to_dict(exportable=True),
+            dir=self.dir,
+            notes=self.notes
         )
+
+    

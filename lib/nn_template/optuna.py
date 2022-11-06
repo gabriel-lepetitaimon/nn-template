@@ -78,6 +78,17 @@ class OptunaCfg(Cfg.Obj):
     def trial(self):
         return getattr(self, '_trial', None)
 
+    def experiment_study_name(self):
+        if self.study_name is not None:
+            return self.study_name
+        exp_name = self.root().get('experiment.name', None)
+        project = self.root().get('experiment.project', None)
+        entity = self.root().get('experiment.entity', None)
+        study_name = [_ for _ in (entity, project, exp_name) if _]
+        if study_name:
+            return '/'.join(study_name)
+        return None
+
     def create_study(self, load_if_exists=False):
         kwargs = {}
         if self.sampler:
@@ -85,7 +96,10 @@ class OptunaCfg(Cfg.Obj):
         if self.pruner:
             kwargs['pruner'] = self.pruner.create()
 
-        study = optuna.create_study(study_name=self.study_name, storage=self.storage,
+        storage = self.storage if not self.root().get('hardware.debug', False) else None
+        study_name = self.experiment_study_name()
+
+        study = optuna.create_study(study_name=study_name, storage=storage,
                                    direction=self.direction,
                                    load_if_exists=load_if_exists,
                                    **kwargs)
@@ -99,7 +113,8 @@ class OptunaCfg(Cfg.Obj):
         if self.pruner:
             kwargs['pruner'] = self.pruner.create()
 
-        study = optuna.load_study(study_name=self.study_name, storage=self.storage, **kwargs)
+        study_name = self.experiment_study_name()
+        study = optuna.load_study(study_name=study_name, storage=self.storage, **kwargs)
         self._study = study
         return study
 
@@ -126,6 +141,7 @@ class OptunaCfg(Cfg.Obj):
 
     def ask(self, suggest=True) -> optuna.trial.Trial:
         trial = self.study.ask()
+        self.root()['experiment.run_id'] = trial.number
         if suggest:
             self.engine.suggest(trial)
         return trial

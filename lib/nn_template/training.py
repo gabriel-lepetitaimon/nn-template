@@ -1,11 +1,20 @@
 from . import Cfg
 
 
+class LossCfg(Cfg.Obj):
+    name = Cfg.oneOf('cross-entropy', 'dice')
+
+    def create_loss(self):
+        n_class = self.root().get('task.n-classes', 'binary')
+        pass
+
 @Cfg.register_obj("training")
 class TrainingCfg(Cfg.Obj):
     seed = 1234
     minibatch = Cfg.int()
     max_epoch = Cfg.int()
+
+    loss: LossCfg = Cfg.obj(shortcut='name')
 
     def configure_seed(self):
         import random
@@ -20,6 +29,7 @@ class TrainingCfg(Cfg.Obj):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
+
 
 
 @Cfg.register_obj("task")
@@ -49,3 +59,21 @@ class HardwareCfg(Cfg.Obj):
     num_worker = 0
     half_precision = False
     minibatch_splits = 1
+    gpus = Cfg.str(None)
+    debug = False
+
+    @gpus.checker
+    def check_gpus(self, v):
+        if ',' in v:
+            v = [int(_.strip()) for _ in v.split(',') if _.strip()]
+
+    def lightning_args(self):
+        args = dict(fast_dev_run=self.debug)
+        if self.gpus is None:
+            args.update(dict(
+                accelerator='gpus',
+                devices=self.gpus,
+                auto_select_gpus=isinstance(self.gpus, int)
+                             ))
+        return args
+
