@@ -6,6 +6,7 @@ import weakref
 
 
 UNDEFINED = '__undefined__'
+UNSPECIFIED = '__unspecified__'
 HYPER_PARAMETER = '__hyper-parameter__'
 
 

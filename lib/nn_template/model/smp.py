@@ -20,7 +20,7 @@ ARCHITECTURE = {
 }
 
 
-@Cfg.register_obj('model')
+@Cfg.register_obj('model', type='smp')
 class Model(Cfg.Obj):
     architecture = Cfg.strMap(ARCHITECTURE)
     encoder_name: str = 'resnet34'

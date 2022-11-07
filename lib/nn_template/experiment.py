@@ -20,9 +20,10 @@ class ExperimentCfg(Cfg.Obj):
 
     def init_wandb(self):
         import wandb
+        project = self.project if not self.root().get('hardware.debug', False) else 'DEBUG'
         wandb.init(
             name=self.run_name,
-            project=self.project,
+            project=project,
             job_type=self.job_type,
             tags=self.tags,
             config=self.root().to_dict(exportable=True),

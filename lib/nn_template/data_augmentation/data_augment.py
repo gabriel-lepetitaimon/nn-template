@@ -2,6 +2,7 @@ import cv2
 import functools
 import inspect
 import numpy as np
+import math
 from collections import OrderedDict
 from copy import copy
 
@@ -60,6 +61,7 @@ class CropCfg(Cfg.Obj):
 class DataAugmentationCfg(Cfg.Obj):
     flip = Cfg.oneOf(False, True, 'horizontal', 'vertical', default=False)
     rotation: RotationCfg = Cfg.obj(default=False, shortcut='enabled')
+    rot90 = False
     elastic: ElasticCfg = Cfg.obj(default=False, shortcut='enabled')
     random_crop: CropCfg = Cfg.obj(default=None, shortcut='shape')
 
@@ -84,6 +86,18 @@ class DataAugmentationCfg(Cfg.Obj):
             case 'horizontal': da.flip_horizontal()
             case 'vertical': da.flip_vertical()
 
+        patch_shape = None
+        if self.random_crop.shape:
+            patch_shape = np.array(self.random_crop.shape)
+            if self.rotation.enabled:
+                patch_shape = patch_shape*np.sqrt(2)
+            if self.elastic.enabled:
+                patch_shape += +max(3*self.elastic.alpha, 3*self.elastic.sigma)
+            patch_shape = tuple(int(math.ceil(_)) for _ in patch_shape)
+            da.crop(shape=patch_shape, padding=self.random_crop.padding)
+            if patch_shape != self.random_crop.shape:
+                patch_shape = self.random_crop.shape
+
         if self.rotation.enabled:
             rot = self.rotation
             da.rotate(angle=rot.angle, interpolation=rot.interpolation,
@@ -95,14 +109,17 @@ class DataAugmentationCfg(Cfg.Obj):
                                   approximate=ela.approximate, interpolation=ela.interpolation,
                                   border_mode=ela.border_mode.mode, border_value=ela.border_mode.value)
 
+        if patch_shape:
+            da.crop_center(shape=patch_shape)
+
+        if self.rot90:
+            da.rot90()
+
         if self.gamma or self.brightness or self.contrast:
             da.color(brightness=self.brightness, gamma=self.gamma, contrast=self.contrast)
 
         if self.hue or self.saturation or self.value:
             da.hsv(hue=self.hue, saturation=self.saturation, value=self.value)
-
-        if self.random_crop.shape:
-            da.crop(shape=self.random_crop.shape, padding=self.random_crop.padding)
 
         return da
 
@@ -398,13 +415,21 @@ class DataAugment:
 
     @augment_method('geometric')
     def crop(self, shape, padding=(0, 0)):
-        padding = (s-p*2 for s, p in zip(shape, padding))
+        padding = [s-p*2 for s, p in zip(shape, padding)]
 
         def augment(x, centerX, centerY):
-            center = (int(c*(s-p) + p//2)
-                      for s, p, c in zip(x.shape, padding, (centerY, centerX)))
+            center = [int(c*(s-p) + p//2)
+                      for s, p, c in zip(x.shape, padding, (centerY, centerX))]
             return crop_pad(x, center, shape)
         return augment, RD.uniform(1), RD.uniform(1)
+
+    @augment_method('geometric')
+    def crop_center(self, shape):
+        def augment(x):
+            center = [s//2 for s in x.shape[:2]]
+            return crop_pad(x, center, shape)
+
+        return augment,
 
     @augment_method('color')
     def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
@@ -417,7 +442,7 @@ class DataAugment:
         b = RD.constant(0) if b is None else RD.auto(b, symetric=True)
 
         def augment(x, brightness, contrast, gamma, r, g, b):
-            x = (x+brightness)*(contrast+1.).clip(0)**(gamma+1.)
+            x = ((x+brightness)*(contrast+1.)).clip(0)**(gamma+1.)
             
             if r or b or g:
                 n = x.shape[0]//3
@@ -441,13 +466,13 @@ class DataAugment:
         saturation = RD.constant(0) if saturation is None else RD.auto(saturation, symetric=True)
         value = RD.constant(0) if value is None else RD.auto(value, symetric=True)
 
-        a_min = np.array([0, 0, 0], np.uint8)
-        a_max = np.array([179, 255, 255], np.uint8)
+        a_min = np.array([0, 0, 0], np.float32)
+        a_max = np.array([360, 1, 1], np.float32)
 
         def augment(x, h, s, v):
-            hsv = cv2.cvtColor(x.astype(np.uint8)*255, cv2.COLOR_BGR2HSV)
-            hsv = hsv + np.array([h, s, v])
-            hsv[:, :, 0] = hsv[:, :, 0] % 179
+            hsv = cv2.cvtColor(x, cv2.COLOR_BGR2HSV)
+            hsv += np.array([h, s, v], dtype=np.float32)
+            hsv[:, :, 0] = hsv[:, :, 0] % 360
             hsv = np.clip(hsv, a_min=a_min, a_max=a_max)
             return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
         return augment, hue, saturation, value
@@ -462,20 +487,18 @@ class DataAugment:
 def crop_pad(img, center, size):
     y, x = center
     h, w = size
-    half_x = size[1] // 2
-    odd_x = size[1] % 2
-    half_y = size[0] // 2
-    odd_y = size[0] % 2
+    H, W = img.shape[:2]
+    half_h, half_w = (_ // 2 for _ in size)
 
-    y0 = int(max(0, half_y - y))
-    y1 = int(max(0, y - half_y))
-    h = int(min(h, y + half_y + odd_y) - y1)
+    y0 = int(max(0, half_h - y))
+    y1 = int(max(0, y - half_h))
+    h = int(min(h-y0, H-y1))
 
-    x0 = int(max(0, half_x - x))
-    x1 = int(max(0, x - half_x))
-    w = int(min(w, x + half_x + odd_x) - x1)
+    x0 = int(max(0, half_w - x))
+    x1 = int(max(0, x - half_w))
+    w = int(min(w-x0, W-x1))
 
-    r = np.zeros_like(img, shape=size+img.shape[2:])
+    r = np.zeros_like(img, shape=tuple(size)+img.shape[2:])
     r[y0:y0+h, x0:x0+w] = img[y1:y1+h, x1:x1+w]
     return r
 

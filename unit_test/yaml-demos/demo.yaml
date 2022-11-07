@@ -2,12 +2,12 @@ experiment:
     name: "Run Name"
     project: "WandB Project Name"
 
-    group: None     # WandB run group (optional)
-    job-type: None  # WandB run job-type (optional)
-    tags: None      # WandB run tags (optional)
-    dir: None       # WandB run artefact directory (optional)
-    notes: None     # WandB run notes and comments (optional)
-    entity: None    # WandB entity where the run should be registered (optional)
+    group:     # WandB run group (optional)
+    job-type:  # WandB run job-type (optional)
+    tags:      # WandB run tags (optional)
+    dir:       # WandB run artefact directory (optional)
+    notes:     # WandB run notes and comments (optional)
+    entity:    # WandB entity where the run should be registered (optional)
 
 
 ###########################################################
@@ -27,28 +27,13 @@ optuna:
 #                    ---   TASK   ---                    #
 ###########################################################
 task:
-    type: img-seg
+    type: Segmentation2D
     metrics: kappa, acc, sen, spe, iou, roc
-    optimize: val-kappa
+    objective: val-kappa
     direction: max
     n-classes: binary
 
-
-###########################################################
-#                    ---   MODEL   ---                    #
-###########################################################
-model:
-    architecture: 'Unet'
-    encoder_name: 'resnet34'
-    encoder_weights: 'imagenet'
-    # See https://smp.readthedocs.io/en/latest/models.html
-
-
-###########################################################
-#                   ---   TRAINING   ---                  #
-###########################################################
-training:
-    loss:  cross-entropy #(eval?)
+    loss: cross-entropy #(eval?)
 
     optimizer:
         (type): Adam
@@ -59,6 +44,22 @@ training:
 
         lr: 1e-3
 
+
+###########################################################
+#                    ---   MODEL   ---                    #
+###########################################################
+model:
+    type: 'smp'
+    architecture: 'Unet'
+    encoder_name: 'resnet34'
+    encoder_weights: 'imagenet'
+    # See https://smp.readthedocs.io/en/latest/models.html
+
+
+###########################################################
+#                   ---   TRAINING   ---                  #
+###########################################################
+training:
     minibatch: 8
     max-epoch: 30
     seed: 1234
@@ -129,18 +130,23 @@ data-augmentation:
             alpha: 40
             sigma: 20
             alpha-affine: 50
-        # random-crop: 512
+        random-crop: 512
 
-        gamma: ±0.2
-        # hue: ±20
-        # saturation: ±20
+        gamma: ±.2
+        hue: ±10
+        saturation: ±.1
 
 
 ###########################################################
 #                     ---   MISC   ---                    #
 ###########################################################
 hardware:
+    debug: False
+    # Select which gpus to use.
+    # If you want a specific gpu put ',' after the gpu number.
+    gpus: 1,
+    precision: 16     # Training precision. ['64', '32', 'bf16', '16']
+    cudnn-benchmark: False
     num-worker: 0
     minibatch-splits: 2
-    gpus: None
-    precision: None
+

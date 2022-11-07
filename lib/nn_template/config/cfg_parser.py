@@ -12,16 +12,33 @@ from .cfg_object import UNDEFINED, CfgCollectionType
 _registered_cfg_object = {}
 
 
-def register_obj(path: str, collection=False):
-    if path in _registered_cfg_object:
-        raise ValueError(f'A configuration object is already registered at path "{path}"')
+def register_obj(path: str, collection=False, type=None):
+    if path not in _registered_cfg_object:
+        _registered_cfg_object[path] = {} if collection else None
+    else:
+        registered_obj = _registered_cfg_object[path]
+
+        from .cfg_object import InvalidAttrError
+        if isinstance(registered_obj, CfgCollectionType) != bool(collection):
+            if collection:
+                raise InvalidAttrError(f'Configuration objects was already registered at path="{path}" as a non-collection.')
+            else:
+                raise InvalidAttrError(f'Configuration objects was already registered at path="{path}" as a collection.')
+        elif not collection and type in path:
+            raise InvalidAttrError(f'A configuration object is already registered at path="{path}", type="{type}".')
 
     def register(cfg_obj: type):
         if not collection:
-            _registered_cfg_object[path] = cfg_obj
+            _registered_cfg_object[path].update({type:  cfg_obj})
         else:
             default_key = collection if isinstance(collection, str) else None
-            _registered_cfg_object[path] = CfgCollectionType(obj_types=cfg_obj, default_key=default_key)
+            cfg_collection: CfgCollectionType = _registered_cfg_object.get(path, None)
+            if cfg_collection is None:
+                _registered_cfg_object[path] = CfgCollectionType(obj_types=cfg_obj, default_key=default_key)
+            else:
+                if cfg_obj in cfg_collection.obj_types:
+                    raise InvalidAttrError(f'A configuration object is already registered at path="{path}", type="{cfg_obj}".')
+                cfg_collection.obj_types = cfg_collection.obj_types + (cfg_obj,)
         return cfg_obj
     return register
 
@@ -195,8 +212,20 @@ class CfgParser:
 
         for path, cfg_obj_class in _registered_cfg_object.items():
             if path in cfg_dict:
+                if isinstance(cfg_obj_class, dict):
+                    if len(cfg_obj_class) == 1 and None in cfg_obj_class:
+                        cfg_obj_class = cfg_obj_class[None]
+                    else:
+                        type = cfg_dict.get('type', UNDEFINED)
+                        if type is UNDEFINED:
+                            raise ParseError(f'Missing a "type" attribute for {path}', cfg_dict.get_mark(path))
+                        if type not in cfg_obj_class:
+                            raise ParseError(f'Invalid type attribute for {path}', cfg_dict[path].get_mark('type'),
+                                             f"Should be one of: {format2str(cfg_obj_class.keys())}.")
+                        cfg_obj_class = cfg_obj_class[type]
                 cfg_dict[path] = cfg_obj_class.from_cfg(cfg_dict[path], mark=cfg_dict.get_mark(path), path=path)
-        for path, cfg_obj_class in _registered_cfg_object.items():
+
+        for path in _registered_cfg_object.keys():
             if path in cfg_dict:
                 from .cfg_object import ObjCfg, CfgCollection
                 obj = cfg_dict[path]

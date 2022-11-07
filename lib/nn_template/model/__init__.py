@@ -1,1 +1,1 @@
-from .models import Model
+from .smp import Model
