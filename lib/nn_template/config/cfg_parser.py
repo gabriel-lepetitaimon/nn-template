@@ -14,7 +14,7 @@ _registered_cfg_object = {}
 
 def register_obj(path: str, collection=False, type=None):
     if path not in _registered_cfg_object:
-        _registered_cfg_object[path] = {} if collection else None
+        _registered_cfg_object[path] = {} if not collection else None
     else:
         registered_obj = _registered_cfg_object[path]
 
@@ -216,7 +216,7 @@ class CfgParser:
                     if len(cfg_obj_class) == 1 and None in cfg_obj_class:
                         cfg_obj_class = cfg_obj_class[None]
                     else:
-                        type = cfg_dict.get('type', UNDEFINED)
+                        type = cfg_dict[path].get('type', UNDEFINED)
                         if type is UNDEFINED:
                             raise ParseError(f'Missing a "type" attribute for {path}', cfg_dict.get_mark(path))
                         if type not in cfg_obj_class:

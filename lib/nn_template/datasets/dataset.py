@@ -34,6 +34,10 @@ class DataSource(Cfg.Obj):
             self._indexes = idx
         return idx
 
+    @property
+    def length(self):
+        return len(self.indexes)
+
     def fetch_indexes(self):
         indexes = {name: src.fetch_indexes() for name, src in self.data.items()}
         if len(indexes) == 1:

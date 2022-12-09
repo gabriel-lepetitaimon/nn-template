@@ -62,6 +62,9 @@ class HyperParameter:
     def engine(self) -> HyperParametersOptimizerEngine:
         return self._engine()
 
+    def __repr__(self):
+        return self.full_specifications
+
 
 def register_hp_optimizer_engine(engine: type):
     if not issubclass(engine, HyperParametersOptimizerEngine):

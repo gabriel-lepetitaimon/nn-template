@@ -36,13 +36,13 @@ task:
     loss: cross-entropy #(eval?)
 
     optimizer:
-        (type): Adam
-        (weight_decay): 0
-        (beta): 0.9       # coefficients used for computing running averages of gradient
-        (beta_sqr): 0.999 # and its square
-        (amsgrad): True
+        type: Adam
+        #weight_decay: 0
+        #beta: 0.9       # coefficients used for computing running averages of gradient
+        #beta_sqr: 0.999 # and its square
+        #amsgrad: True
 
-        lr: 1e-3
+        lr: ~optuna.float(1e-5,1e-2)
 
 
 ###########################################################
@@ -63,6 +63,8 @@ training:
     minibatch: 8
     max-epoch: 30
     seed: 1234
+    
+    loss: cross-entropy #(eval?)
 
 
 ###########################################################
