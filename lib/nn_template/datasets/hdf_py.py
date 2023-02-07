@@ -16,7 +16,7 @@ def create_generic_hdf_datasets(dataset_cfg: Cfg.Dict, file_path=None, seed=1234
         file_path = DEFAULT_DATA_PATH
     hdf_path = P.join(file_path, dataset_cfg.path)
 
-    train = create_generic_hdf_dataset(dataset_cfg, 'training', hdf_path, seed, data_augmentations)
+    train = create_generic_hdf_dataset(dataset_cfg, 'task', hdf_path, seed, data_augmentations)
     valid = create_generic_hdf_dataset(dataset_cfg, 'validation', hdf_path, seed, data_augmentations)
     test = create_generic_hdf_dataset(dataset_cfg, 'testing', hdf_path, seed, data_augmentations)
     return train, valid, test
@@ -61,7 +61,7 @@ def create_generic_hdf_dataset(datasets_cfg: Cfg.Dict, prefix: str, hdf_path: st
         raise ValueError(f'Invalid augment value for dataset {prefix} using file {hdf_path}.')
 
     ## For backward compatibility.
-    PREFIX_FALLBACKS = {'training': 'train', 'validation': 'val', 'testing': 'test'}
+    PREFIX_FALLBACKS = {'task': 'train', 'validation': 'val', 'testing': 'test'}
 
     ## Check dataset structure
     with h5py.File(hdf_path, 'r') as hf:
@@ -74,7 +74,7 @@ def create_generic_hdf_dataset(datasets_cfg: Cfg.Dict, prefix: str, hdf_path: st
             raise ValueError(f'Unkown prefix /{prefix}/ in hdf file: {hdf_path}')
 
         if datasets == 'same':
-            if prefix in ('train', 'training'):
+            if prefix in ('train', 'task'):
                 raise ValueError('The flag "same" for dataset specification is only allowed for validation and test.')
             datasets = datasets_cfg.training.dataset
         if datasets == 'all':

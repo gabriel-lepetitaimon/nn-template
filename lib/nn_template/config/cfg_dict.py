@@ -109,7 +109,7 @@ class CfgDict(dict):
             if isinstance(data, CfgDict):
                 r.child_mark = data.child_mark
                 r.mark = data.mark
-                r._parent = data.parent
+                r._parent = data._parent
 
             for k, v in data.items():
                 if read_marks:
@@ -196,7 +196,7 @@ class CfgDict(dict):
     def to_dict(self, flatten_path=False, exportable=False):
         if exportable:
             def format_v(v):
-                from .hyperparameter_optimization import HyperParameter
+                from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter
                 match v:
                     case HyperParameter(): return v.full_specifications
                     case _: return v
@@ -226,7 +226,17 @@ class CfgDict(dict):
     def print_full_paths(self, prefix=''):
         return (prefix+'\n').join(f'{k}: {v}' for k, v in self.to_dict(flatten_path=True).items())
 
-    def abs_path(self, rel_path, root=None, check_exists=False):
+    def abs_path(self, rel_path, parent_node=None, root=None, check_exists=False):
+        """
+        Solve a relative path from this node. Return an existing parent node and a path to reach the given relative path
+        from that node.
+        :param rel_path: Path relative to this CfgDict
+        :param parent_node: Choose the parent node from which the path will be expressed.
+        If None (default), the returned node will be the closest existing parent node to the relative path destination.
+        :param root: Set a node behond which the relative path may not look when moving upward in the hierarchy.
+        :param check_exists: If true and the rel_path doesn't exist, an exception will be raised.
+        :return: A tuple containing a CfgDict and a path to the relative path (as a tuple of strings).
+        """
         if isinstance(rel_path, str):
             path = list(_.strip() for _ in rel_path.split('.'))
         elif isinstance(rel_path, tuple) and all(isinstance(_, str) for _ in rel_path):
@@ -234,48 +244,58 @@ class CfgDict(dict):
         else:
             raise TypeError('Invalid CfgDict key: %s.' % repr(rel_path))
 
-        if '' in path:
-            if root is None:
-                if '' in path and self._parent is not None:
-                    roots = self.roots()
-                    root = roots[-1]
-                    path = [_.name for _ in reversed(roots[:-1])] + [self.name] + path
+        def simplify_path(path: list):
+            i = len(path)-1
+            to_remove = 0
+            while i:
+                if path[i] == '':
+                    path.pop(i)
+                    to_remove += 1
+                elif to_remove:
+                    to_remove -= 1
+                    path.pop(i)
+                i -= 1
+            return ['']*to_remove + path
 
-            elif root is not self:
-                roots = self.roots()
-                try:
-                    id_root = roots.index(root)+1
-                except ValueError:
-                    raise ValueError(f'"{root.fullname}" is not a parent of "{self.fullname}"') from None
-                path = [_.name for _ in reversed(roots[:id_root-1])] + [self.name] + path
 
-            abs_path = []
-            for p in path:
-                if p:
-                    abs_path += [p]
-                elif len(abs_path):
-                    abs_path.pop()
-                else:
+        if root is None:
+            root = self.root()
+
+        current_node = self
+        while len(path) > 1:
+            p = path.pop(0)
+            if p == '':
+                if current_node is root:
                     raise KeyError(f'Impossible to reach "{rel_path}" from "{self.fullname}":\n'
                                    f'Too many up in the hierarchy.')
-        else:
-            abs_path = path
-            if root is None:
-                root = self
-        while len(abs_path) > 1 and isinstance(root.get(abs_path[0], None), CfgDict):
-            root = root[abs_path[0]]
-            del abs_path[0]
-        abs_path = tuple(abs_path)
+                else:
+                    current_node = current_node.parent
+            else:
+                n = current_node.get(p, None)
+                if isinstance(n, CfgDict):
+                    current_node = n
+                else:
+                    path.insert(0, p)
+                    break
 
         if check_exists:
-            r = root
-            for i, p in enumerate(abs_path):
+            r = current_node
+            for i, p in enumerate(path):
                 try:
                     r = r[p]
                 except KeyError:
-                    raise KeyError(f'Unknown path "{".".join(abs_path[:i+1])}".') from None
+                    raise KeyError(f'Unknown path "{".".join(path[:i+1])}" from "{r.fullname}".') from None
 
-        return root, abs_path
+        if parent_node is not None and parent_node is not current_node:
+            roots = current_node.roots()
+            try:
+                id_parent = roots.index(parent_node) + 1
+            except ValueError:
+                raise ValueError(f'"{parent_node.fullname}" is not a parent of "{self.fullname}"') from None
+            path = [_.name for _ in reversed(roots[:id_parent - 1])] + [current_node.name] + path
+            current_node = parent_node
+
+        return current_node, tuple(path)
 
     def get_mark(self, path):
         root, path = self.abs_path(path)
@@ -304,7 +324,11 @@ class CfgDict(dict):
             if isinstance(value, CfgDict):
                 value._parent = weakref.ref(root)
                 value._name = key[0]
-            return super(CfgDict, root).__setitem__(key[0], value)
+            if root is self:
+                return super(CfgDict, self).__setitem__(key[0], value)
+            else:
+                root[key[0]] = value
+                return
 
         r = root
         for i, k in enumerate(key[:-1]):
@@ -527,15 +551,15 @@ class CfgCollection(CfgDict):
         value = self._to_obj_type(value, mark)
         return super(CfgCollection, self).__setitem__(key, value)
 
-    def init_after_populate(self):
+    def _init_after_populate(self):
         pass
 
-    def _init_after_populate(self):
-        self.init_after_populate()
+    def init_after_populate(self):
+        self._init_after_populate()
         for obj in self.values():
             from .cfg_object import ObjCfg
             if isinstance(obj, ObjCfg):
-                obj._init_after_populate()
+                obj.init_after_populate()
 
     @property
     def obj_types(self):

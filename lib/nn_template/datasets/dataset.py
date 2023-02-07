@@ -4,6 +4,7 @@ import math
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset as TorchDataset
+from torch.utils.data import DataLoader
 
 from ..config import Cfg
 from .data_sources import DataCollectionsAttr
@@ -148,6 +149,7 @@ class DatasetFields(Cfg.Obj):
     def angles_keys(self):
         return list(self.angles.keys())
 
+
 @Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
     fields: DatasetFields = Cfg.obj()
@@ -156,6 +158,18 @@ class DatasetsCfg(Cfg.Obj):
     train: DatasetCfg = Cfg.obj(shortcut='source')
     validate: DatasetCfg = Cfg.obj(shortcut='source')
     test = Cfg.collection(obj_types=DatasetCfg)
+
+    def create_all_dataloaders(self):
+        batch_size = self.root()['training'].minibatch_size
+        num_workers = self.root()['hardware'].num_worker
+        train = DataLoader(self.train.dataset(),
+                   pin_memory=True, shuffle=True, batch_size=batch_size, num_workers=num_workers)
+        validate = DataLoader(self.validate.dataset(),
+                              pin_memory=True, num_workers=6, batch_size=6)
+        test = {k: DataLoader(v.dataset(), pin_memory=True, num_workers=6, batch_size=6)
+                 for k, v in self.test.items()}
+
+        return train, validate, test
 
 
 class Dataset(TorchDataset):

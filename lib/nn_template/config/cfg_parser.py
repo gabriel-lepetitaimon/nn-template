@@ -111,11 +111,11 @@ class CfgParser:
         return v
 
     def parse(self):
-        self._parse()
+        self._parse_files()
         self._merge_files()
         return self
 
-    def _parse(self):
+    def _parse_files(self):
         f = CfgFile(self.path).parse()
         self.files = [f]
         dependencies = list(f.inherit)

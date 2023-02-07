@@ -92,6 +92,24 @@ def cat_crop(x1, x2):
     return torch.cat(clip_tensors(x1, x2), 1)
 
 
+def select_pixels_by_mask(*tensors, mask):
+    if mask is not None:
+        mask = mask.to(torch.bool)
+        clipped_mask = None
+        selected = []
+        for t in tensors:
+            if clipped_mask is None or t.shape[-2:] != clipped_mask.shape:
+                clipped_mask = clip_pad_center(mask, t.shape)
+            if clipped_mask.ndim > t.ndim:
+                clipped_mask.squeeze(1)
+            elif clipped_mask.ndim < t.ndim:
+                clipped_mask.unsqueeze(1)
+            selected += [t[clipped_mask]]
+    else:
+        selected = [t.flatten() for t in tensors]
+    return selected
+
+
 def normalize_vector(vector: Union[Tuple[torch.Tensor], torch.Tensor], epsilon: int = 1e-8):
     """
     Normalize a vector field to unitary norm.

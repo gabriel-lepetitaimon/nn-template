@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .cfg_dict import CfgDict, UNDEFINED
+from nn_template.config.cfg_dict import CfgDict, UNDEFINED
 from typing import Dict
 import weakref
 
@@ -20,16 +20,43 @@ class HyperParametersOptimizerEngine:
     def create_hyperparameter(self, name, parent, specification, mark) -> HyperParameter:
         pass
 
-    def apply_suggestion(self):
-        self.cfg.update({k: hp.suggested_value if hp.suggested_value is not UNDEFINED else hp
+    def force_hyperparameters_value(self, hp_values: dict, merge=True):
+        """
+        Force the value of hyperparameters. Usefull to load a set of hypterparameters.
+        :param hp_values: A dictionary containing the new value of hyperparameters.
+        :param merge: If true, hyperparameters not specified in hp_values will be left as is.
+                      Otherwise, their value will be set to UNDEFINED.
+        """
+        for k in self.hyper_parameters:
+            if k in hp_values:
+                self.hyper_parameters[k].suggested_value = hp_values[k]
+            elif not merge:
+                self.hyper_parameters[k].suggested_value = UNDEFINED
+        self.apply_suggestion()
+
+    def apply_suggestion(self, cfg: CfgDict = None):
+        """
+        Apply the hyperparameters suggestions to a given CfgDict. If none is provided, self.cfg is used instead.
+        """
+        if cfg is None:
+            cfg = self.cfg
+        cfg.update({k: hp.suggested_value if hp.suggested_value is not UNDEFINED else hp
                          for k, hp in self.hyper_parameters.items()})
 
     def clear_suggestion(self):
+        """
+        Replace all suggested hyperparameter values to UNDEFINED.
+        """
         for hp in self.hyper_parameters.values():
             hp.suggested_value = UNDEFINED
         self.cfg.update(self.hyper_parameters)
 
     def discover_hyperparameters(self):
+        """
+        Search self.cfg for hyperparameter and register them in `self.hyper_parameters`.
+        (Namely: attributes which starts with '~' followed by the name of a hyperparameter engine)
+        :return:
+        """
         for cursor in self.cfg.walk_cursor():
             if isinstance(cursor.value, str) and cursor.value.startswith('~'+self.engine_name()):
                 hp = self.create_hyperparameter(cursor.name, cursor.parent, cursor.value, cursor.mark)

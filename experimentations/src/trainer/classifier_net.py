@@ -57,7 +57,7 @@ class Binary2DSegmentation(pl.LightningModule):
             optimizer = {'type': 'Adam'}
         self.optimizer = optimizer
         if earlystop_cfg is None:
-            earlystop_cfg= default_config()['training']['early-stopping']
+            earlystop_cfg= default_config()['task']['early-stopping']
         self.earlystop_cfg = earlystop_cfg
 
         self.testset_names = None

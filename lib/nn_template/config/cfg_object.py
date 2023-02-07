@@ -4,7 +4,7 @@ from collections.abc import Iterable
 import weakref
 
 from .cfg_dict import CfgDict, CfgCollection, CfgList, UNDEFINED, UNSPECIFIED, HYPER_PARAMETER
-from .hyperparameter_optimization import HyperParameter
+from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter
 
 
 class InvalidAttrError(Exception):
@@ -56,13 +56,29 @@ class MetaCfgObj(type):
         return hasattr(cls, '__attr__') and item in cls.__attr__
 
 
+def _check_type_subclass(typehint, obj_types):
+    if isinstance(obj_types, type):
+        obj_types = (obj_types,)
+    elif isinstance(obj_types, Mapping):
+        obj_types = tuple(obj_types.values())
+
+    if isinstance(typehint, UnionType):
+        typehints = tuple(typehint.__args__)
+        return all(any(issubclass(t, hint) for hint in typehints) for t in obj_types)
+    else:
+        return all(issubclass(t, typehint) for t in obj_types)
+
+
 def _type2attr(typehint, value=UNDEFINED):
     if isinstance(value, ObjAttr):
         if not issubclass(typehint, ObjCfg):
             raise TypeError
-        if value.obj_type is not None and not issubclass(value.obj_type, typehint):
+        if value.obj_types is not None and not _check_type_subclass(typehint, value.obj_types):
             raise TypeError
-        value.obj_type = typehint
+        else:
+            if isinstance(typehint, UnionType):
+                raise TypeError
+            value.obj_types = typehint
         return value
     elif isinstance(value, RefAttr):
         if value.obj_types is not None:
@@ -72,10 +88,8 @@ def _type2attr(typehint, value=UNDEFINED):
             value.obj_types = typehint.__args__ if isinstance(typehint, UnionType) else typehint
         return value
     elif isinstance(value, CollectionAttr | MultiTypeCollectionAttr | ObjListAttr):
-        if issubclass(typehint, CfgCollection):
+        if not issubclass(typehint, CfgCollection):
             raise TypeError
-        elif isinstance(typehint, UnionType):
-            typehint.__args__
         return value
     elif isinstance(value, OneOfAttr):
         if value.values:
@@ -93,7 +107,7 @@ def _type2attr(typehint, value=UNDEFINED):
         case "list": attr = lambda default: OneOfAttr(*typehint, default=default)
         case _:
             if isinstance(typehint, ObjCfg):
-                attr = lambda default: ObjAttr(obj_type=typehint, default=default)
+                attr = lambda default: ObjAttr(obj_types=typehint, default=default)
             elif isinstance(typehint, CfgCollection):
                 attr = lambda default: CollectionAttr(obj_types=typehint.obj_types, default=default)
             else:
@@ -113,9 +127,9 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
         super(ObjCfg, self).__init__(data=None, parent=parent)
         self._attr_values = {}
 
-        if data is None:
-            data = {}
-        data.update({name: attr.default for name, attr in self.attributes().items() if attr.default is not UNDEFINED})
+        #if data is None:
+        #    data = {}
+        #data.update({name: attr.default for name, attr in self.attributes().items() if attr.default is not UNDEFINED})
         if data:
             self.update(data)
 
@@ -239,16 +253,21 @@ class CfgAttr:
     def __init__(self, default=UNDEFINED, nullable=None):
         self.name = ""
         self._checker = None
+        self._post_checker = None
         if nullable is None:
             nullable = default is None
         self.nullable = nullable
+        try:
+            default = self.check_value(default)
+        except Exception:
+            pass
         self.default = default
         self._parent_cfg_class = None
 
     def __set_name__(self, owner, name):
         self.name = name
-        if name not in owner.__attr__:
-            owner.__attr__[name] = self
+        if not hasattr(owner, name):
+            setattr(owner, name, self)
         self._parent_cfg_class = owner
 
     def __set__(self, instance, value):
@@ -278,7 +297,14 @@ class CfgAttr:
             except (TypeError, ValueError):
                 raise AttrValueError(f'Invalid value for attribute {self.fullname}',
                                      f'Provided value was: {repr(value)}')
-        return self._check_value(value, cfg_dict)
+        value = self._check_value(value, cfg_dict)
+        if self._post_checker is not None:
+            try:
+                value = self._post_checker(cfg_dict, value)
+            except (TypeError, ValueError):
+                raise AttrValueError(f'Invalid value for attribute {self.fullname}',
+                                     f'Provided value was: {repr(value)}')
+        return value
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         return value
@@ -288,6 +314,13 @@ class CfgAttr:
         Check value decorator.
         """
         self._checker = func
+        return func
+
+    def post_checker(self, func):
+        """
+        Check value decorator.
+        """
+        self._post_checker = func
         return func
 
     @property
@@ -473,6 +506,9 @@ class StrMapAttr(CfgAttr):
 
 
 class StrListAttr(CfgAttr):
+    def __init__(self, default=UNDEFINED, nullable=None):
+        super().__init__(default=default, nullable=nullable)
+
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, str):
             return [_.strip() for _ in value.split(',') if _.strip()]
@@ -483,28 +519,66 @@ class StrListAttr(CfgAttr):
 
 
 class ObjAttr(CfgAttr):
-    def __init__(self, default=UNSPECIFIED, shortcut=None, obj_type=None, nullable=None):
-        if obj_type is not None:
-            if default is UNSPECIFIED:
-                default = obj_type()
-            self.obj_type = obj_type
-            if shortcut is not None and (not isinstance(shortcut, str) or shortcut not in obj_type):
-                    raise ValueError(f'Invalid shortcut name: {shortcut}. \n'
-                                     f'(Valid shortcut are: {list(obj_type.__attr__.keys())}).')
-            self.shortcut = shortcut
-            super(ObjAttr, self).__init__(default, nullable=nullable)
-        else:
-            self.shortcut = shortcut
-            self.obj_type = None
-            super(ObjAttr, self).__init__(nullable=nullable)
-            self.default = UNDEFINED if default is UNSPECIFIED else default
+    def __init__(self, default=UNDEFINED, shortcut: str=None, obj_types=None, nullable=None):
+        """
+
+        :param default:
+        :param shortcut: Shortcut allow to create an object of type ``obj_types`` using a single value instead of
+        a complete dictionary. In that case the object will be created using the dictionary ``{shortcut: value}``
+        If obj_types is a dictionary of types then shortcut is used to customise the type selector
+        (instead of the default attribute name "type").
+        :param obj_types: A type inheriting ObjCfg (if None the type is inferred from the typehint).
+        It may also be a dictionary of types inheriting ObjCfg as values and with names as keys.
+        :param nullable:
+        """
+        self.shortcut = shortcut
+        self.obj_types = obj_types
+        if obj_types is not None:
+            if not isinstance(obj_types, Mapping):
+                self._check_shortcut()
+            elif self.shortcut is None:
+                self.shortcut = 'type'
+            # if default is UNSPECIFIED:
+            #     default = obj_types()
+        super(ObjAttr, self).__init__(default, nullable=nullable)
+        # else:
+        #     super(ObjAttr, self).__init__(nullable=nullable)
+        #     self.default = UNDEFINED if default is UNSPECIFIED else default
+
+    def _check_shortcut(self):
+        if self.shortcut is None:
+            return True
+        obj_types = self.obj_types
+        if isinstance(obj_types, type):
+            obj_types = (obj_types,)
+        elif isinstance(obj_types, Mapping):
+            obj_types = tuple(obj_types.values())
+        for t in obj_types:
+            if self.shortcut not in t:
+                raise ValueError(f'Unknown shortcut attribute: {self.shortcut}, in type {t.__name__}.\n')
+        return True
 
     def __repr__(self):
-        return f"Cfg.obj(type={self.obj_type}, shortcut={self.shortcut})"
+        return f"Cfg.obj(type={self.obj_types}, shortcut={self.shortcut})"
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         mark = cfg_dict.get_mark(self.name)
-        if not isinstance(value, self.obj_type):
+
+        obj_type = self.obj_types
+        if isinstance(obj_type, Mapping):
+            # In the case of multiple types accepted. Infer the correct one from the type selector attribute.
+            if not isinstance(value, Mapping):
+                raise AttrValueError(f"{str(value)} is invalid for attribute {self.fullname}")
+            if not self.shortcut in value:
+                raise AttrValueError(f"{str(value)} should contain a type selector field named '{self.shortcut}'"
+                                     f"to be valid for attribute {self.fullname}")
+            selected_type = value[self.shortcut]
+            obj_type = self.obj_types.get(selected_type, None)
+            if obj_type is None:
+                raise AttrValueError(f"Unkown type '{selected_type}' for attribute {self.fullname}.",
+                                     f"Must be one of: {','.join(self.obj_types.keys)}.")
+
+        if not isinstance(value, obj_type):
             if isinstance(value, Mapping):
                 if not isinstance(value, CfgDict):
                     value = CfgDict(value, parent=cfg_dict)
@@ -512,7 +586,7 @@ class ObjAttr(CfgAttr):
                 if self.shortcut is None:
                     raise AttrValueError(f"{str(value)} is invalid for attribute {self.fullname}")
                 value = CfgDict({self.shortcut: value}, parent=cfg_dict)
-        return self.obj_type.from_cfg(value, mark=mark)
+        return self.obj_types.from_cfg(value, mark=mark)
 
 
 class ObjListAttr(CfgAttr):

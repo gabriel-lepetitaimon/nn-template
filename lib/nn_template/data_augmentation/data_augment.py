@@ -483,6 +483,15 @@ class DataAugment:
     def saturation(self, saturation=(-20, 20)):
         return self.hsv(saturation=saturation)
 
+    @augment_method('intensity')
+    def noise(self, noise):
+        noise = RD.auto(noise, symetric=True)
+
+        def augment(x, n):
+            return x + n
+
+        return augment, noise
+
 
 def crop_pad(img, center, size):
     y, x = center

@@ -1,1 +1,1 @@
-from .config import Cfg
+from .config import Cfg, CfgDict

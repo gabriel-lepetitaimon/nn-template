@@ -21,17 +21,20 @@ ARCHITECTURE = {
 
 
 @Cfg.register_obj('model', type='smp')
-class Model(Cfg.Obj):
+class SMPModel(Cfg.Obj):
     architecture = Cfg.strMap(ARCHITECTURE)
     encoder_name: str = 'resnet34'
     encoder_depth: int = Cfg.int(min=3, max=5, default=5)
     encoder_weights: str = 'imagenet'
     decoder_use_batchnorm = Cfg.oneOf(True, False, 'inplace', default=True)
 
-    def model(self, in_channels: int, classes: int, activation: str = None, opt: Mapping[str, any] = None):
+    def create(self, in_channels: int, activation: str = None, opt: Mapping[str, any] = None):
         Arch = self.architecture
         arch_opts = list(inspect.signature(Arch).parameters.values())
-        cfg = dict(in_channels=in_channels, classes=classes, activation=activation)
+
+        n_classes = self.root()['task'].n_classes
+        cfg = dict(in_channels=in_channels, classes=n_classes, activation=activation)
+
         attr = self.attr()
         for k, v in self.items():
             if k == 'architecture' or k in cfg:

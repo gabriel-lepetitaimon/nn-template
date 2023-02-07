@@ -103,7 +103,7 @@ class Logs:
         artifacts = self.mlflow.list_artifacts()
         if len(artifacts) != 1 or artifacts[0].path != 'cfg.yaml':
             raise RuntimeError('The sanity check for storing artifacts failed.'
-                               'Interrupting the script before the training starts.')
+                               'Interrupting the script before the task starts.')
 
         exp_cfg_path = cfg.get('trial.cfg_path', None)
         if exp_cfg_path is not None:
@@ -114,18 +114,18 @@ class Logs:
             cfg.to_yaml(f)
 
         # --- LOG PARAMS ---
-        for k in cfg.model.walk():
-            self.mlflow.log_param(f'model.{k}', cfg.model[k])
+        for k in cfg.create.walk():
+            self.mlflow.log_param(f'model.{k}', cfg.create[k])
         for k in cfg['data-augmentation'].walk():
             self.mlflow.log_param(f'DA.{k}', cfg['data-augmentation'][k])
 
-        self.mlflow.log_param('training.lr', cfg['hyper-parameters.lr'])
-        self.mlflow.log_param('training.lr-decay', cfg['hyper-parameters.optimizer.lr-decay-factor'])
-        self.mlflow.log_param('training.dropout', cfg['hyper-parameters.drop-out'])
-        self.mlflow.log_param('training.batch-size', cfg['hyper-parameters.batch-size'])
-        self.mlflow.log_param('training.file', cfg.training['dataset-file'])
-        self.mlflow.log_param('training.dataset', cfg.training['training-dataset'])
-        self.mlflow.log_param('training.seed', cfg.training['seed'])
+        self.mlflow.log_param('task.lr', cfg['hyper-parameters.lr'])
+        self.mlflow.log_param('task.lr-decay', cfg['hyper-parameters.optimizer.lr-decay-factor'])
+        self.mlflow.log_param('task.dropout', cfg['hyper-parameters.drop-out'])
+        self.mlflow.log_param('task.batch-size', cfg['hyper-parameters.batch-size'])
+        self.mlflow.log_param('task.file', cfg.training['dataset-file'])
+        self.mlflow.log_param('task.dataset', cfg.training['task-dataset'])
+        self.mlflow.log_param('task.seed', cfg.training['seed'])
 
     def log_misc(self, key, value):
         if isinstance(key, (list, tuple)):

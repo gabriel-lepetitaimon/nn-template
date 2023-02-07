@@ -1,4 +1,4 @@
-from .. import Cfg
+from nn_template import Cfg
 
 
 @Cfg.register_obj("hardware")

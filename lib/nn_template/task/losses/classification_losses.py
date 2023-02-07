@@ -1,22 +1,10 @@
-from .. import Cfg
-import torch
+from .loss_core import Loss, register_loss, Cfg
 import torch.nn.functional as F
 
-# TODO: multiple obj_types for one Cfg.obj()
 
-class DiceLoss(Cfg.Obj):
-    eps = 1e-6
-
-    def create(self, n_classes):
-        if n_classes == 'binary':
-            def binary_dice_loss(pred, target):
-                return 2 * torch.sum(pred * target) / (torch.sum(pred + target) + self.eps)
-            return binary_dice_loss
-        raise NotImplementedError
-
-
-class CrossEntropyLoss(Cfg.Obj):
-    with_logits = True
+@register_loss('cross-entropy')
+class CrossEntropyLoss(Loss):
+    with_logits = Cfg.bool(True)
 
     def create(self, n_classes):
         if n_classes == 'binary':
@@ -31,9 +19,3 @@ class CrossEntropyLoss(Cfg.Obj):
             def cross_entropy(pred, target):
                 return F.cross_entropy(pred, target.float())
             return cross_entropy
-
-
-LOSSES = {
-    'dice': DiceLoss,
-    'cross-entropy': CrossEntropyLoss
-}

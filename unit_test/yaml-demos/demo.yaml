@@ -1,13 +1,18 @@
 experiment:
-    name: "Run Name"
     project: "WandB Project Name"
+    name: "Run Name"
+    tags: []      # WandB run tags (optional)
 
-    group:     # WandB run group (optional)
-    job-type:  # WandB run job-type (optional)
-    tags:      # WandB run tags (optional)
-    dir:       # WandB run artefact directory (optional)
-    notes:     # WandB run notes and comments (optional)
-    entity:    # WandB entity where the run should be registered (optional)
+    wandb:
+        entity:    # WandB entity where the run should be registered (optional)
+
+        group:     # WandB run group (optional)
+        job-type:  # WandB run job-type (optional)
+
+        notes:     # WandB run notes and comments (optional)
+        dir:       # WandB run artefact directory (optional)
+
+
 
 
 ###########################################################
@@ -15,22 +20,20 @@ experiment:
 ###########################################################
 optuna:
     study_name: 'test'
+    storage:
     sampler:
         type: TPE
         n_startup_trials: 10
     pruner:
         type: Hyperband
-        
-        
+        monitor:
+
 
 ###########################################################
 #                    ---   TASK   ---                    #
 ###########################################################
 task:
     type: Segmentation2D
-    metrics: kappa, acc, sen, spe, iou, roc
-    objective: val-kappa
-    direction: max
     n-classes: binary
 
     loss: cross-entropy #(eval?)
@@ -44,6 +47,7 @@ task:
 
         lr: ~optuna.float(1e-5,1e-2)
 
+    metrics: kappa, acc, confmat, iou, auroc
 
 ###########################################################
 #                    ---   MODEL   ---                    #
@@ -63,8 +67,13 @@ training:
     minibatch: 8
     max-epoch: 30
     seed: 1234
-    
-    loss: cross-entropy #(eval?)
+
+    validate-every-n-epoch: 1
+    objective: val-acc
+    direction: max
+    n_runs: 20
+
+    checkpoint-metrics: val-loss!, val-acc, val-dice
 
 
 ###########################################################
