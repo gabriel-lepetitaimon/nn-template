@@ -73,7 +73,7 @@ training:
     direction: max
     n_runs: 20
 
-    checkpoint-metrics: val-loss!, val-acc, val-dice
+    checkpoint-metrics: val-loss!, val-acc, val-iou
 
 
 ###########################################################
@@ -88,16 +88,18 @@ datasets:
             mask: gt > 0
 
     train:
-        source: DRIVE-train-val
-        range: ':-3'
+        source:
+            DRIVE-train-val:
+              range: ':-3'
             
         augment:
             augmentation: default
             factor: 2
 
     validate:
-        source: DRIVE-train-val
-        range: '-3:'
+        source:
+            DRIVE-train-val:
+              range: '-3:'
         cache: True
 
     test:

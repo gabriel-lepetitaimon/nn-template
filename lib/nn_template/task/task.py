@@ -14,9 +14,9 @@ class LightningTaskCfg(Cfg.Obj):
     def _test_dataset_names(self) -> tuple[str]:
         return ('test',) # tuple(self.root()['datasets'].test.keys())
 
-    @cached_property
+    @property
     def metrics_names(self):
-        metrics = [m.strip() for m in self.root().get('task.metrics').split(',')]
+        metrics = [m.strip() for m in self.root().get('task.metrics').split(',')]+['loss']
         metrics = [f'{p}-{m}' for m in metrics for p in ('val',)+self._test_dataset_names()]
         metrics += ['train-loss']
         return metrics

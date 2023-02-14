@@ -6,7 +6,7 @@ from ...config import Cfg
 from ...config.cfg_dict import UNDEFINED
 
 
-class Metrics(Cfg.obj):
+class Metrics(Cfg.Obj):
     metric_type = "metric"
 
     def create(self, **kwargs):
@@ -23,7 +23,10 @@ def _metrics_by_type(metric_type):
     if isinstance(metric_type, str):
         metric_type = [m.strip() for m in metric_type.split(',') if m.strip()]
     if metric_type:
-        return {k: m for k, m in _METRICS.items() if m.metric_type in metric_type}
+        metrics = {k: m for k, m in _METRICS.items() if m.metric_type in metric_type}
+        if not metrics:
+            raise ValueError(f'Unkown metric type: {metric_type}. Valid types are '
+                             f'{",".join(set(m.metric_type for m in _METRICS.values()))}.')
     return _METRICS
 
 
@@ -32,7 +35,8 @@ def metric_attr(default=UNDEFINED, metric_type=None, nullable=None):
 
 
 def metrics_attr(default=UNDEFINED, metric_type: Iterable[str] | str = None):
-    return Cfg.multi_type_collection(obj_types=_metrics_by_type(metric_type), default=default)
+    return Cfg.obj_list(main_key='type', obj_types=_metrics_by_type(metric_type),
+                        type_key='type', default=default)
 
 
 def register_metric(name: str, metric_type: str = 'metric'):

@@ -84,7 +84,7 @@ class DatasetSourceRef(Cfg.Obj):
             stop = n
         elif -1 < self.range.stop < 0:
             stop = math.floor((1 + self.range.stop) * n)
-        elif 0 <= self.range.start <= 1:
+        elif 0 <= self.range.stop <= 1:
             stop = math.floor(self.range.stop * n)
         else:
             stop = self.range.stop % n
@@ -96,7 +96,7 @@ class DatasetSourceRef(Cfg.Obj):
         else:
             step = math.floor(self.range.step)
 
-        return self.range(start, stop, step)
+        return slice(start, stop, step)
 
 
 class DatasetCfg(Cfg.Obj):

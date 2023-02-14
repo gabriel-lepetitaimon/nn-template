@@ -50,6 +50,11 @@ class MetaCfgObj(type):
             clsdict[attr_name] = attr
             clsdict['__attr__'][attr_name] = attr
 
+        # Register other attributes:
+        for attr_name, attr in clsdict.items():
+            if isinstance(attr, CfgAttr) and attr_name not in clsdict['__attr__']:
+                clsdict['__attr__'][attr_name] = attr
+
         return type.__new__(mcs, name, bases, clsdict)
 
     def __contains__(cls, item):
@@ -118,6 +123,89 @@ def _type2attr(typehint, value=UNDEFINED):
             raise TypeError
         return attr(default=value.default)
     return attr(default=value)
+
+
+class CfgAttr:
+    def __init__(self, default=UNDEFINED, nullable=None):
+        self.name = ""
+        self._checker = None
+        self._post_checker = None
+        if nullable is None:
+            nullable = default is None
+        self.nullable = nullable
+        try:
+            default = self.check_value(default)
+        except Exception:
+            pass
+        self.default = default
+        self._parent_cfg_class = None
+
+    def __set_name__(self, owner, name):
+        self.name = name
+        if not hasattr(owner, name):
+            setattr(owner, name, self)
+        self._parent_cfg_class = owner
+
+    def __set__(self, instance, value):
+        raise AttributeError('Attempt to modify a read-only attribute.')
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+
+        try:
+            return instance._attr_values[self.name]
+        except KeyError as e:
+            if self.default is UNDEFINED:
+                raise AttributeError(f'Attribute {self.name} not yet specified.') from None
+            return self.default
+
+    def check_value(self, value, cfg_dict: CfgDict | None = None):
+        if self.nullable and value is None:
+            return None
+
+        if isinstance(value, str) and value.startswith("$"):
+            return value
+
+        if self._checker is not None:
+            try:
+                value = self._checker(cfg_dict, value)
+            except (TypeError, ValueError):
+                raise AttrValueError(f'Invalid value for attribute {self.fullname}',
+                                     f'Provided value was: {repr(value)}')
+        value = self._check_value(value, cfg_dict)
+        if self._post_checker is not None:
+            try:
+                value = self._post_checker(cfg_dict, value)
+            except (TypeError, ValueError):
+                raise AttrValueError(f'Invalid value for attribute {self.fullname}',
+                                     f'Provided value was: {repr(value)}')
+        return value
+
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
+        return value
+
+    def checker(self, func):
+        """
+        Check value decorator.
+        """
+        self._checker = func
+        return func
+
+    def post_checker(self, func):
+        """
+        Check value decorator.
+        """
+        self._post_checker = func
+        return func
+
+    @property
+    def parent_cfg_class(self) -> MetaCfgObj:
+        return self._parent_cfg_class
+
+    @property
+    def fullname(self):
+        return self.parent_cfg_class.__name__ + '.' + self.name
 
 
 class ObjCfg(CfgDict, metaclass=MetaCfgObj):
@@ -249,97 +337,18 @@ class CfgCollectionType:
         return r
 
 
-class CfgAttr:
-    def __init__(self, default=UNDEFINED, nullable=None):
-        self.name = ""
-        self._checker = None
-        self._post_checker = None
-        if nullable is None:
-            nullable = default is None
-        self.nullable = nullable
-        try:
-            default = self.check_value(default)
-        except Exception:
-            pass
-        self.default = default
-        self._parent_cfg_class = None
-
-    def __set_name__(self, owner, name):
-        self.name = name
-        if not hasattr(owner, name):
-            setattr(owner, name, self)
-        self._parent_cfg_class = owner
-
-    def __set__(self, instance, value):
-        raise AttributeError('Attempt to modify a read-only attribute.')
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-
-        try:
-            return instance._attr_values[self.name]
-        except KeyError as e:
-            if self.default is UNDEFINED:
-                raise AttributeError(f'Attribute {self.name} not yet specified.') from None
-            return self.default
-
-    def check_value(self, value, cfg_dict: CfgDict | None = None):
-        if self.nullable and value is None:
-            return None
-
-        if isinstance(value, str) and value.startswith("$"):
-            return value
-
-        if self._checker is not None:
-            try:
-                value = self._checker(cfg_dict, value)
-            except (TypeError, ValueError):
-                raise AttrValueError(f'Invalid value for attribute {self.fullname}',
-                                     f'Provided value was: {repr(value)}')
-        value = self._check_value(value, cfg_dict)
-        if self._post_checker is not None:
-            try:
-                value = self._post_checker(cfg_dict, value)
-            except (TypeError, ValueError):
-                raise AttrValueError(f'Invalid value for attribute {self.fullname}',
-                                     f'Provided value was: {repr(value)}')
-        return value
-
-    def _check_value(self, value, cfg_dict: CfgDict | None = None):
-        return value
-
-    def checker(self, func):
-        """
-        Check value decorator.
-        """
-        self._checker = func
-        return func
-
-    def post_checker(self, func):
-        """
-        Check value decorator.
-        """
-        self._post_checker = func
-        return func
-
-    @property
-    def parent_cfg_class(self) -> MetaCfgObj:
-        return self._parent_cfg_class
-
-    @property
-    def fullname(self):
-        return self.parent_cfg_class.__name__ + '.' + self.name
-
-
 class IntAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, min=None, max=None):
+    def __init__(self, default=UNDEFINED, min=None, max=None, nullable=None):
         self.min = min
         self.max = max
-        super(IntAttr, self).__init__(default)
+        super(IntAttr, self).__init__(default, nullable=nullable)
 
     @staticmethod
-    def interpret(value) -> int:
+    def interpret(value, nullable=True) -> int | None:
+        if nullable:
+            if value is None or value == '':
+                return None
+
         if isinstance(value, str):
             if value.endswith(tuple('TGMk')):
                 value = float(value[:-1])*{
@@ -380,10 +389,10 @@ class ShapeAttr(CfgAttr):
 
 
 class FloatAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, min=None, max=None):
+    def __init__(self, default=UNDEFINED, min=None, max=None, nullable=None):
         self.min = min
         self.max = max
-        super(FloatAttr, self).__init__(default)
+        super(FloatAttr, self).__init__(default, nullable=nullable)
 
     @staticmethod
     def interpret(value, nullable=False) -> float | None:
@@ -427,10 +436,10 @@ class RangeAttr(CfgAttr):
         try:
             if isinstance(value, str):
                 interval = value.split(':')
-                if not 0 > len(interval) >= 3:
+                if not 0 < len(interval) <= 3:
                     raise invalid_value
-                return range(*[FloatAttr.interpret(_, nullable=True) for _ in interval])
-            return range(FloatAttr.interpret(value, nullable=True))
+                return slice(*[FloatAttr.interpret(_, nullable=True) for _ in interval])
+            return slice(FloatAttr.interpret(value, nullable=True))
         except TypeError:
             raise invalid_value
 
@@ -590,8 +599,9 @@ class ObjAttr(CfgAttr):
 
 
 class ObjListAttr(CfgAttr):
-    def __init__(self, main_key, default=UNDEFINED, obj_types=None):
+    def __init__(self, main_key, default=UNDEFINED, type_key=None, obj_types=None):
         self.id_key = main_key
+        self.type_key = type_key
         if obj_types is not None:
             self._obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
         else:
@@ -609,11 +619,12 @@ class ObjListAttr(CfgAttr):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
         elif isinstance(value, str):
-            data = value
-            value = CfgDict(data={data: data}, parent=cfg_dict)
+            data = [v.strip() for v in value.split(',') if v.strip()]
+            value = CfgDict(data={d: d for d in data}, parent=cfg_dict)
             value.mark = cfg_dict.child_mark[self.name]
-            value.child_mark = {data: cfg_dict.child_mark[self.name]}
-        value = CfgList(data=value, obj_types=self.obj_types, id_key=self.id_key, parent=cfg_dict)
+            value.child_mark = {d: cfg_dict.child_mark[self.name] for d in data}
+        value = CfgList(data=value, obj_types=self.obj_types, id_key=self.id_key, type_key=self.type_key,
+                        parent=cfg_dict)
         return value
 
 

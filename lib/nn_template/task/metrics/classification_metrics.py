@@ -4,7 +4,7 @@ from .metrics_core import Metrics, Cfg, register_metric, pl
 
 
 class GenericClassificationMetric(Metrics):
-    task = Cfg.oneOf('binary', 'multiclass')
+    task = Cfg.oneOf('binary', 'multiclass', default='multiclass')
     ignore_index = Cfg.int(None)
     validate_args = Cfg.bool(True)
 
@@ -33,7 +33,7 @@ class AveragableClassificationMetric(GenericClassificationMetric):
 
 
 class MultilabelClassificationMetric(AveragableClassificationMetric):
-    task = Cfg.oneOf('binary', 'multiclass', 'multilabel')
+    task = Cfg.oneOf('binary', 'multiclass', 'multilabel', default='multiclass')
     num_labels = Cfg.int(None)
     top_k = Cfg.int(1)
 
