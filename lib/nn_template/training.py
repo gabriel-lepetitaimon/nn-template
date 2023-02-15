@@ -23,7 +23,7 @@ class CheckpointCfg(Cfg.Obj):
             self['mode'] = 'min'
         check_metric_name(self, metric, 'checkpoint')
         if not metric.startswith(('val', 'train')):
-            raise Cfg.InvalidAttr(f'Invalid metric for checkpoint: "{value}"',
+            raise Cfg.InvalidAttr(f'Invalid metric for checkpoint: "{metric}"',
                                   'Metrics monitored by checkpoint must be computed on '
                                   'the validation or training datasets.')
         return metric
