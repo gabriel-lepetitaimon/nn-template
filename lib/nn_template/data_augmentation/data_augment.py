@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import cv2
 import functools
 import inspect
@@ -75,10 +77,11 @@ class DataAugmentationCfg(Cfg.Obj):
 
     seed: int = 1234
 
-    @property
-    def data_augment(self):
-        if hasattr(self, '_data_augment'):
-            return self._data_augment
+    @functools.cached_property
+    def data_augment(self) -> DataAugment:
+        return self.create_data_augment()
+
+    def create_data_augment(self) -> DataAugment:
         da = DataAugment()
 
         match self.flip:
@@ -152,6 +155,83 @@ class DataAugment:
     def __init__(self, seed=1234):
         self._augment_stack = []
         self._rng = np.random.default_rng(seed)
+
+    class Augmenter:
+        def __init__(self, da: DataAugment, images='', labels='', angles='', vectors='', deaugment=False,
+                     to_torch=False, transpose_input=False, rng=None):
+            self.da = da
+            if rng is None:
+                self.rng = self._rng
+            elif isinstance(rng, int):
+                self.rng = np.random.default_rng(rng)
+
+            self.to_torch = to_torch
+            self.transpose_input = transpose_input
+
+            if isinstance(images, str):
+                self.images = [_.strip() for _ in images.split(',') if _.strip()]
+            elif not images:
+                self.images = ()
+            if isinstance(labels, str):
+                self.labels = [_.strip() for _ in labels.split(',') if _.strip()]
+            elif not labels:
+                self.labels = ()
+            if isinstance(angles, str):
+                self.angles = [_.strip() for _ in angles.split(',') if _.strip()]
+            elif not angles:
+                self.angles = ()
+            if isinstance(vectors, str):
+                self.vectors = [_.strip() for _ in vectors.split(',') if _.strip()]
+            elif not vectors:
+                self.vectors = ()
+
+            self.images_aug = None
+            self.labels_aug = None
+            self.angles_aug = None
+            self.fields_aug = None
+
+            self.rng_states_def = []
+            if images:
+                self.images_aug = self.da.compile_stack(rng_states=self.rng_states_def)
+            if labels:
+                self.labels_aug = self.da.compile_stack(rng_states=self.rng_states_def,
+                                                        interpolation=cv2.INTER_NEAREST, except_type={'color'})
+            if angles:
+                self.angles_aug = self.da.compile_stack(rng_states=self.rng_states_def, border_mode=cv2.BORDER_REPLICATE,
+                                                        except_type={'color'}, value_type='angle')
+            if vectors:
+                self.fields_aug = self.da.compile_stack(rng_states=self.rng_states_def, border_mode=cv2.BORDER_REPLICATE,
+                                                        except_type={'color'}, value_type='vec')
+
+        def augment(self, rng_states=None, **kwargs):
+            if not isinstance(rng_states, list):
+                rng = self.rng if rng_states is None else rng_states
+                rng_states = [[s(rng) for s in states.values()] for states in self.rng_states_def]
+
+            data = copy(kwargs)
+            for k, v in data.items():
+                if self.transpose_input and v.ndim == 3:
+                    data[k] = v.transpose(1, 2, 0)
+
+            for image in self.images:
+                data[image] = self.images_aug(data[image], rng_states)
+
+            if self.labels:
+                mixed_label = sum(data[label]*(4**i) for i, label in enumerate(self.labels))
+                mixed_label = self.labels_aug(mixed_label, rng_states)
+                for i, label in enumerate(self.labels):
+                    data[label] = (mixed_label//(4**i)) % 4
+
+            for angle in self.angles:
+                data[angle] = self.angles_aug(data[angle], rng_states)
+
+            for field in self.vectors:
+                data[field] = self.fields_aug(data[field], rng_states)
+
+            if self.to_torch:
+                return {k: to_tensor(v) for k, v in data.items()}
+
+            return data
 
     def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
         if rng is None:
@@ -339,7 +419,8 @@ class DataAugment:
             if v:
                 x = np.flip(x, axis=0)
             return x
-        return {'augment': augment, 'post': post_flip}, h_flip, v_flip
+        return {'augment': augment, 'post': post_flip,
+                'deaugment': augment, 'post_deaugment': post_flip}, h_flip, v_flip
 
     def flip_horizontal(self, p=0.5):
         return self.flip(p_horizontal=p, p_vertical=0)
@@ -371,7 +452,13 @@ class DataAugment:
         def augment(x, k):
             return np.rot90(x, k=k, axes=(0, 1))
 
-        return {'augment': augment, 'post': post_rot90}, rot90
+        def deaugment(x, k):
+            return np.rot90(x, k=-k, axes=(0, 1))
+
+        post_deaugment = None if post_rot90 is None else lambda x, k: post_rot90(x, -k)
+
+        return {'augment': augment, 'post': post_rot90,
+                'deaugment': deaugment, 'post_deaugment': post_deaugment}, rot90
 
     @augment_method('geometric')
     def rotate(self, angle=(-180, +180), value_type=None,

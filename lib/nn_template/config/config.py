@@ -144,6 +144,6 @@ class Cfg:
     Collection = CfgCollection
     Dict = CfgDict
     Attr = CfgAttr
-    InvalidAttr = AttrValueError
+    InvalidAttr = InvalidAttr
 
     register_obj = register_obj

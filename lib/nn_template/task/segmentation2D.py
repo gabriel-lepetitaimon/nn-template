@@ -1,33 +1,26 @@
 import torch
 from torch import nn
 
+from copy import copy
 from .task import Cfg, LightningTask, LightningTaskCfg, Loss, loss_attr, OptimizerCfg
-from .metrics import metrics_attr
-from ..nn_misc.clip_pad import clip_pad_center, select_pixels_by_mask
+from .test_time_augment import TestTimeAugmentCfg
+from ..misc.clip_pad import clip_pad_center, select_pixels_by_mask
 
 
 @Cfg.register_obj("task", type='Segmentation2D')
 class Segmentation2DCfg(LightningTaskCfg):
     n_classes = Cfg.str('binary')
-    objective = Cfg.str('acc')
     direction = Cfg.oneOf('max', 'min', default='max')
 
     loss: Loss = loss_attr(default='cross-entropy')
     optimizer: OptimizerCfg = Cfg.obj(default='Adam', shortcut='type')
+    test_time_augment: TestTimeAugmentCfg = Cfg.obj(default=None, shortcut='alias')
 
     @n_classes.checker
     def check_n_classes(self, value):
         if value == 'binary':
             return value
         return int(value)
-
-    @objective.checker
-    def check_objective(self, value):
-        value = value.strip()
-        if value not in self.metrics + ['val-'+m for m in self.metrics]:
-            raise Cfg.InvalidAttr(f'Unknown metric "{value}" provided for attribute {self.name}',
-                                  f"Valid metrics are {', '.join(self.metrics)}.")
-        return value
 
 
 # ==================================================================================
@@ -48,11 +41,24 @@ class Segmentation2D(LightningTask):
         if self.cfg.n_classes == 'binary':
             return torch.sigmoid(self.model(*args, **kwargs))
 
-    def compute_pred_target_loss(self, batch):
+    def compute_pred_target_loss(self, batch, test_time_augment=False):
         x, target = batch['x'], batch['y']
         mask = batch.get('mask', None)
 
-        pred = self.model(x, **{k: v for k, v in batch.items() if k not in ('x', 'y', 'mask')})
+        if test_time_augment:
+            merger = self.cfg.test_time_augment.create_merger()
+            for transform in self.cfg.test_time_augment.transforms:
+                x = transform.augment_image(x)
+                pred = self.model(x, **{k: v for k, v in batch.items() if k not in ('x', 'y', 'mask')})
+                if pred.ndim == 3:
+                    pred = transform.deaugment_mask(pred)
+                elif pred.ndim == 4:
+                    pred = transform.deaugment_label(pred)
+                merger.append(pred)
+            pred = merger.result
+        else:
+            pred = self.model(x, **{k: v for k, v in batch.items() if k not in ('x', 'y', 'mask')})
+
         batch['pred'] = pred
         if self.cfg.n_classes == 'binary' and pred.ndim == 4:
             pred = pred.squeeze(1)
@@ -70,8 +76,8 @@ class Segmentation2D(LightningTask):
                 if log:
                     self.metrics_cfg[name].log(name, metric)
 
-    def _eval_metrics(self, batch, dataset_idx=None):
-        pred, target, loss = self.compute_pred_target_loss(batch)
+    def evaluate_model(self, batch, dataset_idx=None, test_time_augment=False):
+        pred, target, loss = self.compute_pred_target_loss(batch, test_time_augment=test_time_augment)
         dataset_name = 'val' if dataset_idx is None else self.test_datasets_names[dataset_idx]
 
         self.log(dataset_name+'-loss', loss)
@@ -84,9 +90,9 @@ class Segmentation2D(LightningTask):
         return loss
 
     def validation_step(self, batch):
-        self.evaluate_metrics(batch)
-        return batch['pred']
+        self.evaluate_metrics(batch, test_time_augment=True)
+        return batch    # ['pred']
 
     def test_step(self, batch):
-        self.evaluate_metrics(batch)
-        return batch['pred']
+        self.evaluate_model(batch, test_time_augment=True)
+        return batch    # ['pred']

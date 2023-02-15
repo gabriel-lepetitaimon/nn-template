@@ -1,8 +1,9 @@
-from functools import cached_property
+from typing import Tuple
 import pytorch_lightning as pl
 
 from .metrics import metrics_attr
-from ..config import Cfg
+from .. import Cfg
+from ..datasets import DatasetsCfg
 from .losses import Loss, loss_attr
 from .optimizer import OptimizerCfg
 
@@ -11,8 +12,11 @@ class LightningTaskCfg(Cfg.Obj):
 
     metrics = metrics_attr('acc', 'classification')
 
-    def _test_dataset_names(self) -> tuple[str]:
-        return ('test',) # tuple(self.root()['datasets'].test.keys())
+    def _test_dataset_names(self) -> Tuple[str] | Tuple[()]:
+        datasets_cfg: DatasetsCfg = self.root()['datasets']
+        if not isinstance(datasets_cfg, DatasetsCfg):
+            return ()
+        return tuple(datasets_cfg.test.keys())
 
     @property
     def metrics_names(self):

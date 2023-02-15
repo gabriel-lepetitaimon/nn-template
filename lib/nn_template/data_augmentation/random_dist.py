@@ -1,5 +1,5 @@
 import numpy as np
-from ..config.cfg_object import CfgAttr, AttrValueError, CfgDict
+from ..config.cfg_object import CfgAttr, InvalidAttr, CfgDict
 
 
 class RandomDistribution:
@@ -133,7 +133,7 @@ class RandDistAttr(CfgAttr):
         try:
             return RandomDistribution.auto(value, symetric=self.symetric)
         except ValueError as e:
-            raise AttrValueError(str(e))
+            raise InvalidAttr(str(e))
 
 
 def interpret_float(value) -> float:

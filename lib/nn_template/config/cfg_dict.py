@@ -138,7 +138,7 @@ class CfgDict(dict):
         data = {list(_.keys())[0]: list(_.values())[0] for _ in data}
         return cls.from_dict(data, recursive=recursive, read_marks=read_marks, **kwargs)
 
-    def __init__(self, data: Dict[str, any] = None, parent=None):
+    def __init__(self, data: Dict[str, any] = None, parent=None, mark=None, child_mark=None):
         super(CfgDict, self).__init__()
         if isinstance(data, CfgDict):
             self.mark = data.mark
@@ -146,8 +146,8 @@ class CfgDict(dict):
             self._parent = data._parent if parent is None else weakref.ref(parent)
             self._name = data._name
         else:
-            self.mark = None
-            self.child_mark = {}
+            self.mark = mark
+            self.child_mark = child_mark if child_mark is not None else {}
             self._parent = None if parent is None else weakref.ref(parent)
             self._name = None
 
@@ -159,7 +159,7 @@ class CfgDict(dict):
         return None if self._parent is None else self._parent()
 
     @property
-    def name(self):
+    def name(self)-> str | None:
         if self._name:
             return self._name
         parent = self.parent
@@ -186,12 +186,17 @@ class CfgDict(dict):
         roots = self.roots(max_level=max_level)
         return roots[-1] if roots else self
 
-    def path(self):
-        return tuple(_.name for _ in reversed(self.roots()[:-1]))
+    def path(self) -> tuple[str] | tuple[()]:
+        return tuple(_.name for _ in reversed(self.roots()[:-1]) if _.name)
 
     @property
     def fullname(self):
-        return None if self._parent is None else '.'.join(self.path()+(self.name,))
+        if self._parent is None:
+            return None
+        path = self.path()
+        if self.name:
+            path = path + (self.name,)
+        return '.'.join(path)
 
     def to_dict(self, flatten_path=False, exportable=False):
         if exportable:
@@ -432,7 +437,10 @@ class CfgDict(dict):
 
             force_replace = k.endswith('!')
             if force_replace:
+                if k in self.child_mark:
+                    self.child_mark[k[:-1]] = self.child_mark.pop(k)
                 k = k[:-1]
+
             if not force_replace and k in self and isinstance(self[k], CfgDict):
                 self[k].update(v)
             else:

@@ -65,15 +65,16 @@ model:
 ###########################################################
 training:
     minibatch: 8
+    gradient-clip: 2
     max-epoch: 30
     seed: 1234
 
     validate-every-n-epoch: 1
-    objective: val-acc
+    objective: DRIVE-acc
     direction: max
     n_runs: 20
 
-    checkpoint-metrics: val-loss!, val-acc, val-iou
+    checkpoints: DRIVE-loss^, val-acc, val-iou
 
 
 ###########################################################

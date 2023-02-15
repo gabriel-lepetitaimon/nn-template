@@ -7,6 +7,7 @@ from nn_template.config import Cfg
 from nn_template.config.cfg_parser import ParseError
 from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter, HyperParametersOptimizerEngine, \
     register_hp_optimizer_engine
+from nn_template.training import TrainingCfg, check_metric_name
 
 from typing import List
 
@@ -47,6 +48,15 @@ class OptunaPrunerCfg(Cfg.Obj):
     type = Cfg.oneOf(*list(pruners.keys()))
     monitor = Cfg.str(None)
 
+    @monitor.post_checker
+    def monitor_check(self, value: str|None):
+        if value is None:
+            value = self._default_monitored_metrics()
+        check_metric_name(self, value, 'monitor')
+        if not value.startswith(('train', 'val')):
+            raise Cfg.InvalidAttr(f'Invalid pruner monitored metric: "{value}"',
+                                  'Pruner can only monitor metrics computed on the train or the validation dataset.')
+
     def create(self):
         pruner = OptunaPrunerCfg.pruners[self.type]
         pruner_arg_keys = inspect.signature(pruner).parameters.keys()
@@ -56,6 +66,10 @@ class OptunaPrunerCfg(Cfg.Obj):
                 ignored_arg))
         kwargs = {k: v for k, v in self.items() if k in pruner_arg_keys}
         return pruner(**kwargs)
+
+    def _default_monitored_metrics(self):
+        training_cfg: TrainingCfg = self.root()['training']
+        return training_cfg.objective
 
 
 class OptunaRDBStorageCfg(Cfg.Obj):
@@ -117,7 +131,8 @@ class OptunaCfg(Cfg.Obj):
 
     @cached_property
     def optuna_storage(self):
-        return self.storage.create() if not self.root()['hardware'].debug else None
+        storage = self.storage if not self.root()['hardware'].debug else None
+        return storage.create() if storage is not None else None
 
     @property
     def trial(self) -> optuna.trial.BaseTrial | None:

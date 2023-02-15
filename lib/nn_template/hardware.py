@@ -3,7 +3,7 @@ from nn_template import Cfg
 
 @Cfg.register_obj("hardware")
 class HardwareCfg(Cfg.Obj):
-    debug = False
+    debug = Cfg.oneOf(False, True, 'fast', default=False)
     gpus = Cfg.str(None)
     num_worker = 0
 
