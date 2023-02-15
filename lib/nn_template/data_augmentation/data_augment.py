@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import cv2
 import functools
 import inspect
@@ -78,10 +76,10 @@ class DataAugmentationCfg(Cfg.Obj):
     seed: int = 1234
 
     @functools.cached_property
-    def data_augment(self) -> DataAugment:
+    def data_augment(self):
         return self.create_data_augment()
 
-    def create_data_augment(self) -> DataAugment:
+    def create_data_augment(self):
         da = DataAugment()
 
         match self.flip:
@@ -157,7 +155,7 @@ class DataAugment:
         self._rng = np.random.default_rng(seed)
 
     class Augmenter:
-        def __init__(self, da: DataAugment, images='', labels='', angles='', vectors='', deaugment=False,
+        def __init__(self, da, images='', labels='', angles='', vectors='', deaugment=False,
                      to_torch=False, transpose_input=False, rng=None):
             self.da = da
             if rng is None:

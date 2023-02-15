@@ -104,7 +104,7 @@ def _type2attr(typehint, value=UNDEFINED):
             value.values = typehint.__args__ if isinstance(typehint, UnionType) else typehint
         return value
 
-    match typehint.__name__:
+    match typehint.__name__ if isinstance(typehint, type) else typehint:
         case "int": attr = IntAttr
         case "float": attr = FloatAttr
         case "bool": attr = BoolAttr
