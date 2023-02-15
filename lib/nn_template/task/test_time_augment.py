@@ -68,6 +68,6 @@ class TestTimeAugmentCfg(Cfg.Obj):
         import ttach as tta
         return tta.base.Merger(type=self.merge_mode, n=len(self.transforms))
 
-    def configure_test_time_augment(self, model: torch.Module):
+    def configure_test_time_augment(self, model):
         import ttach as tta
         return tta.SegmentationTTAWrapper(model, transforms=self.transforms)

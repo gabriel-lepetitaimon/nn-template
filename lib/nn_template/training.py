@@ -22,6 +22,10 @@ class CheckpointCfg(Cfg.Obj):
             metric = metric[:-1].strip()
             self['mode'] = 'min'
         check_metric_name(self, metric, 'checkpoint')
+        if not metric.startswith(('val', 'train')):
+            raise Cfg.InvalidAttr(f'Invalid metric for checkpoint: "{value}"',
+                                  'Metrics monitored by checkpoint must be computed on '
+                                  'the validation or training datasets.')
         return metric
 
     def create(self) -> ModelCheckpoint:
@@ -56,12 +60,18 @@ class TrainingCfg(Cfg.Obj):
     direction = Cfg.oneOf('max', 'min', default='max')
     n_runs = Cfg.int(min=0)
 
+    def _init_after_populate(self):
+        self.check_objective(self.objective)
+
     @objective.post_checker
     def check_objective(self, value):
         check_metric_name(self, value, 'objective')
-        if not any(value == ckpt.metric for ckpt in self.checkpoints.values()):
-            raise Cfg.InvalidAttr(f'Invalid objective metric "{value}"',
-                                  f'The objective metric must be monitored by a checkpoint.')
+        try:
+            if not any(value == ckpt.metric for ckpt in self.checkpoints.values()):
+                raise Cfg.InvalidAttr(f'Invalid objective metric "{value}"',
+                                      f'The objective metric must be monitored by a checkpoint.')
+        except AttributeError:
+            pass
         return value
 
     def configure_seed(self):

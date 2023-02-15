@@ -70,7 +70,7 @@ training:
     seed: 1234
 
     validate-every-n-epoch: 1
-    objective: DRIVE-acc
+    objective: val-acc
     direction: max
     n_runs: 20
 
