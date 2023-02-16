@@ -76,11 +76,12 @@ class Segmentation2D(LightningTask):
                 if log:
                     self.metrics_cfg[name].log(name, metric)
 
-    def evaluate_model(self, batch, dataset_idx=None, test_time_augment=False):
+    def evaluate_model(self, batch, dataset_name='', test_time_augment=False):
         pred, target, loss = self.compute_pred_target_loss(batch, test_time_augment=test_time_augment)
-        dataset_name = 'val' if dataset_idx is None else self.test_datasets_names[dataset_idx]
+        if dataset_name:
+            dataset_name += '-'
 
-        self.log(dataset_name+'-loss', loss)
+        self.log(dataset_name+'loss', loss)
         self.compute_metrics(pred, target, dataset=dataset_name, log=True)
 
     def training_step(self, batch, batch_idx):
@@ -90,9 +91,12 @@ class Segmentation2D(LightningTask):
         return loss
 
     def validation_step(self, batch):
-        self.evaluate_metrics(batch, test_time_augment=True)
+        self.evaluate_metrics(batch, dataset_name='val', test_time_augment=True)
         return batch    # ['pred']
 
-    def test_step(self, batch):
-        self.evaluate_model(batch, test_time_augment=True)
+    def test_step(self, batch, dataloader_id):
+        dataloader_name = getattr(self.trainer, 'test_dataloaders_name', 'test')
+        if isinstance(dataloader_name, list) and len(dataloader_name) > dataloader_id:
+            dataloader_name = dataloader_name[dataloader_id]
+        self.evaluate_model(batch, dataset_name=dataloader_name, test_time_augment=True)
         return batch    # ['pred']

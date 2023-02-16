@@ -47,17 +47,14 @@ def run_train(cfg: CfgDict):
     # --- TEST --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾ #
     
-    if 'av' in cfg.training['dataset-file']:
+    if 'av' in ['dataset-file']:
         cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
     else:
         cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
 
-    callbacks = [ExportValidation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)]
+    callbacks = [ExportValidation(cmap, dataset_names=net.testset_names)]
 
-    net.testset_names, test_datasets = list(zip(*test_datasets.items()))
-    tester = pl.Trainer(gpus=args.gpus, logger=logs.loggers,
-                        callbacks=[],
-                        progress_bar_refresh_rate=1 if args.debug else 0,)
+    tester = training_cfg.create_tester(callbacks=callbacks)
     tester.test(net, ckpt_path=training_cfg.objective_best_ckpt_path)
 
     ###############

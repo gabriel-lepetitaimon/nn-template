@@ -6,13 +6,12 @@ from pytorch_lightning.callbacks import Callback
 
 
 class ExportValidation(Callback):
-    def __init__(self, color_map, path, dataset_names):
+    def __init__(self, color_map, dataset_names):
         super(ExportValidation, self).__init__()
 
         from .lut import prepare_lut
         self.color_lut = prepare_lut(color_map, source_dtype=np.int)
         self.dataset_names = dataset_names
-        self.path = path
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.export_batch(batch, outputs, batch_idx, dataloader_idx, prefix='val')
@@ -37,9 +36,6 @@ class ExportValidation(Callback):
         if 'mask' in batch:
             mask = clip_pad_center(batch['mask'], y_pred.shape)
             y[mask==0] = float('nan')
-
-        if not os.path.exists(self.path):
-            os.makedirs(self.path)
 
         diff = torch.stack((y, y_pred), dim=1)
         diff = diff.cpu().numpy()

@@ -138,6 +138,7 @@ class TrainingCfg(Cfg.Obj):
                                               batch_size=6, num_workers=6)
                              for name, cfg in datasets_cfg.items()}
             tester.test_dataloaders = list(test_datasets.values())
+            tester.test_dataloaders_names = list(test_datasets.keys())
 
     def log_best_ckpt_metrics(self):
         best_metric = {'best-'+k: v.checkpoint.best_model_score for k, v in self.checkpoints.items()}
