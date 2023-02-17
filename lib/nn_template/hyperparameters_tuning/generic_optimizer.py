@@ -89,6 +89,9 @@ class HyperParameter:
     def engine(self) -> HyperParametersOptimizerEngine:
         return self._engine()
 
+    def suggest(self, *args, **kwargs):
+        pass
+
     def __repr__(self):
         return self.full_specifications
 

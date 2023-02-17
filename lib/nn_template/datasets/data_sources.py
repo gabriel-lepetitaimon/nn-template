@@ -8,9 +8,9 @@ from ..config import Cfg
 class DataCollectionsAttr(Cfg.multi_type_collection):
     def __init__(self):
         super(DataCollectionsAttr, self).__init__(obj_types={
-            'ColorMap': ColorImage,
-            'LabelMap': LabelImage,
-            'MaskMap': MaskImage,
+            'Image': ColorImage,
+            'Label2D': Label2D,
+            'Mask2D': Mask2D,
         })
 
 
@@ -74,7 +74,7 @@ class ImageLoader(FilesPathLoader):
     def interp_resize(self):
         import cv2
         if self.interpolation == 'auto':
-            if isinstance(self, (LabelImage, MaskImage)):
+            if isinstance(self, (Label2D, Mask2D)):
                 return cv2.INTER_AREA
             else:
                 return cv2.INTER_CUBIC
@@ -94,13 +94,13 @@ class ColorImage(ImageLoader):
         return img.astype(np.float32)/255
 
 
-class LabelImage(ImageLoader):
+class Label2D(ImageLoader):
     labelize = Cfg.collection(str, default={})
 
     def fetch_data(self, path):
         import cv2
         import numpy as np
-        img = super(LabelImage, self).fetch_data(path)
+        img = super(Label2D, self).fetch_data(path)
 
         label = np.zeros(img.shape[:2], np.uint8)
         channels = {'img': img, 'b': img[..., 0], 'g': img[..., 1], 'r': img[..., 2]}
@@ -114,11 +114,11 @@ class LabelImage(ImageLoader):
         return label
 
 
-class MaskImage(ImageLoader):
+class Mask2D(ImageLoader):
     mask: str = 'mean'
 
     def fetch_data(self, path):
-        img = super(MaskImage, self).fetch_data(path)
+        img = super(Mask2D, self).fetch_data(path)
 
         if self.mask == 'mean':
             return img.mean(axis=2) > 128
@@ -129,7 +129,7 @@ class MaskImage(ImageLoader):
             libs = {'np': np, 'cv2': cv2}
             mask = eval(self.mask, channels, libs)
             if mask.dtype == np.uint8:
-                mask = mask > 255
+                mask = mask > 128
             elif mask.dtype == np.float:
                 mask = mask > .5
             return mask

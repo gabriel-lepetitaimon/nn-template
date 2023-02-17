@@ -58,7 +58,6 @@ class TrainingCfg(Cfg.Obj):
     objective = Cfg.str('val-acc')
     monitor = Cfg.strList(default=None)
     direction = Cfg.oneOf('max', 'min', default='max')
-    n_runs = Cfg.int(min=0)
 
     def _init_after_populate(self):
         self.check_objective(self.objective)

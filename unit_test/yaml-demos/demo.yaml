@@ -20,7 +20,8 @@ experiment:
 ###########################################################
 optuna:
     study_name: 'test'
-    storage:
+    storage: 
+    n_runs: 20
     sampler:
         type: TPE
         n_startup_trials: 10
@@ -72,9 +73,8 @@ training:
     validate-every-n-epoch: 1
     objective: val-acc
     direction: max
-    n_runs: 20
 
-    checkpoints: DRIVE-loss^, val-acc, val-iou
+    checkpoints: train-loss^, val-acc, val-iou
 
 
 ###########################################################
@@ -114,17 +114,20 @@ datasets:
 
               data:
                   raw:
-                    type: ColorMap
+                    type: Image
                     directory: '0-images'
                     path: '{ID:n}_training.png'
                     # resize: 1500
                   gt:
-                    type: LabelMap
+                    type: Label2D
                     directory: '2-label_AV'
                     labelize:
                         1: r + g > 125
                         2: b > 125
                     $: ..raw
+                  mask:
+                    type: Mask2D
+                    path: 'mask.png'
 
         DRIVE-test:
               $: ..DRIVE-train-val

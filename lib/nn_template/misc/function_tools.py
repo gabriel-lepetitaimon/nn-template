@@ -2,6 +2,7 @@ __all__ = ['cached_not_null_property']
 
 
 from types import GenericAlias
+from time import time
 
 _NOT_FOUND = object()
 
@@ -44,3 +45,18 @@ class cached_not_null_property:
 
     __class_getitem__ = classmethod(GenericAlias)
 
+
+class LogTimer:
+    def __init__(self, process_name, log=True):
+        self.process_name = process_name
+        self.t0 = None
+        self.log = log
+
+    def __enter__(self):
+        self.t0 = time()
+        if self.log:
+            print('  *** '+self.process_name+' ***')
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None and self.log:
+            print(f'     done in {time()-self.t0:.1f}s.')

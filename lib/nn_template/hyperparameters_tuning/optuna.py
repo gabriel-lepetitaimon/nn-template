@@ -1,6 +1,5 @@
 import inspect
 import optuna
-import pytorch_lightning
 from functools import cached_property
 
 from nn_template.config import Cfg
@@ -49,7 +48,7 @@ class OptunaPrunerCfg(Cfg.Obj):
     monitor = Cfg.str(None)
 
     @monitor.post_checker
-    def monitor_check(self, value: str|None):
+    def monitor_check(self, value: str | None):
         if value is None:
             value = self._default_monitored_metrics()
         check_metric_name(self, value, 'monitor')
@@ -89,8 +88,12 @@ class OptunaRDBStorageCfg(Cfg.Obj):
         return optuna.storages.RDBStorage(url=self.url, engine_kwargs=self.engine_kwargs, **kwargs)
 
 
+__optuna_retry = 0
+
+
 @Cfg.register_obj("optuna")
 class OptunaCfg(Cfg.Obj):
+    n_runs = Cfg.int()
     storage: OptunaRDBStorageCfg = Cfg.obj(shortcut='url', default=None)
     study_name = Cfg.str(default=None)
     direction = Cfg.oneOf('minimize', 'maximize', default='minimize')
@@ -101,17 +104,31 @@ class OptunaCfg(Cfg.Obj):
         self._engine = OptunaEngine(self.root())
         self._engine.discover_hyperparameters()
 
-    def __enter__(self):
-        self.ask()
-        return self
+    class TrialContext:
+        def __init__(self, optuna_cfg, max_retry):
+            self.cfg = optuna_cfg
+            self.max_retry = max_retry
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        trial = self.trial
-        if isinstance(trial, optuna.Trial):
-            if exc_type is None:
-                self.study.tell(trial, state=optuna.trial.TrialState.COMPLETE)
-            else:
-                self.study.tell(trial, state=optuna.trial.TrialState.FAIL)
+        def __enter__(self):
+            self.cfg.ask()
+            return self.cfg.root()
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            global __optuna_retry
+            trial = self.cfg.trial
+            if isinstance(trial, optuna.Trial):
+                if exc_type is None:
+                    self.cfg.study.tell(trial, state=optuna.trial.TrialState.COMPLETE)
+                else:
+                    self.cfg.study.tell(trial, state=optuna.trial.TrialState.FAIL)
+            self.cfg.clear_trial()
+
+            if exc_type is not None:
+                __optuna_retry += 1
+                return __optuna_retry >= self.max_retry
+
+    def trial_ctx(self, max_retry=5):
+        return OptunaCfg.TrialContext(self, max_retry=max_retry)
 
     @property
     def engine(self):
@@ -152,7 +169,8 @@ class OptunaCfg(Cfg.Obj):
 
     def create_study(self, load_if_exists=False) -> optuna.Study:
         """
-        Create or load a study using the information from the configuration (namely the proper name, sampler, pruner and storage).
+        Create or load a study using the information from the configuration
+            (namely the proper name, sampler, pruner and storage).
         The created or loaded study is stored in ``self.study``.
         :param load_if_exists: Flag to control the behavior to handle a conflict of study names.
             In the case where a study named ``study_name`` already exists in the ``storage``,
@@ -189,13 +207,18 @@ class OptunaCfg(Cfg.Obj):
     def get_all_study_summaries(self, include_best_trial=True) -> List[optuna.study.StudySummary]:
         return optuna.get_all_study_summaries(storage=self.optuna_storage, include_best_trial=include_best_trial)
 
-    def valid_trials_count(self):
+    def valid_trials_count(self, only_completed=False):
         trials = self.study.trials
         n_valid_trials = 0
+        State = optuna.trial.TrialState
         for trial in trials:
-            if trial.state != optuna.trial.TrialState.FAIL:
+            if (only_completed and trial.state in (State.COMPLETE, State.PRUNED)) \
+                    or trial.state != State.FAIL:
                 n_valid_trials += 1
         return n_valid_trials
+
+    def hyper_parameter_search_complete(self):
+        return self.valid_trials_count() >= self.n_runs
 
     def copy_study(self, to_storage=None, to_study_name=None):
         if to_storage is None and to_study_name is None:
@@ -280,7 +303,6 @@ class OptunaCfg(Cfg.Obj):
     def pytorch_lightnings_callbacks(self) -> list[optuna.integration.PyTorchLightningPruningCallback]:
         """
         Generate a pruning callback
-        :param monitor:
         :return:
         """
         trial = self.trial
@@ -297,6 +319,10 @@ class OptunaCfg(Cfg.Obj):
         if isinstance(trial, optuna.Trial):
             self.study.tell(trial, optimized_value)
             self._trial = None
+
+    def clear_trial(self):
+        self.engine.clear_suggestion()
+        self._trial = None
 
 
 # =====================================================================================================================
@@ -373,19 +399,3 @@ class OptunaHP(HyperParameter):
         v = suggest_f(self.name, *self.args, **self.kwargs)
         self.suggested_value = v
         return v
-
-
-def apply_optuna_suggestion(cfg: Cfg.Dict, trial: optuna.trial.Trial):
-    def suggest(key, value):
-        if isinstance(value, str) and value.startswith("$optuna."):
-            value = OptunaHP(key, value[8:])
-            value.suggest(trial)
-        elif isinstance(value, OptunaHP):
-            value.suggest(trial)
-        return value
-
-    cfg.map(suggest, True)
-
-
-def clear_optuna_suggestion(cfg: Cfg.Dict):
-    pass

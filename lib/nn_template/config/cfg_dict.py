@@ -99,12 +99,25 @@ class CursorCfgDict:
 
 class CfgDict(dict):
     @classmethod
-    def from_dict(cls, data, recursive=False, read_marks=False, **kwargs):
+    def from_dict(cls, data, recursive=False, recursive_name=False, read_marks=False, **kwargs):
+        """
+        Cast a standard dictionary to a CfgDict.
+
+        :param data: The dictionary to cast.
+        :param recursive: If true any dictionary contained in data will be cast as well.
+        :param recursive_name: If true name containing '.' will be interpreted as dictionaries of dictionaries.
+            (Exemple: {'parent.child': 0} will be interpreted as {'parent': {'child': 0}}.)
+        :param read_marks:
+        :param kwargs:
+        :return:
+        """
         if data is None:
             return cls(**kwargs)
         if isinstance(data, cls):
             return data
         if isinstance(data, dict):
+            from_dict_args = dict(recursive=recursive, recursive_name=recursive_name, read_marks=read_marks)
+
             r = cls(**kwargs)
             if isinstance(data, CfgDict):
                 r.child_mark = data.child_mark
@@ -119,24 +132,28 @@ class CfgDict(dict):
                     elif k == '__child_marks__':
                         r.child_mark = v
                         continue
+                if recursive_name:
+                    if '.' in k:
+                        k, child = k.split('.', 1)
+                        v = CfgDict.from_dict({child: v}, **from_dict_args)
                 if recursive:
                     if isinstance(v, list):
-                        v = CfgDict.from_list(v, recursive=True, read_marks=read_marks)
+                        v = CfgDict.from_list(v, **from_dict_args)
                     elif is_dict(v):
                         if isinstance(v, CfgDict) and v.mark is not None:
                             r.child_mark[str(k)] = v.mark
-                        v = CfgDict.from_dict(v, recursive=True, read_marks=read_marks)
+                        v = CfgDict.from_dict(v, **from_dict_args)
                 r[str(k)] = v
             return r
         return data
 
     @classmethod
-    def from_list(cls, data, recursive=False, read_marks=False, **kwargs):
+    def from_list(cls, data, recursive=False, recursive_name=False, read_marks=False, **kwargs):
         marks_set = {'__mark__', '__child_marks__'} if read_marks else set()
         if not all(isinstance(_, dict) and len(set(_.keys())-marks_set) == 1 for _ in data):
             return data
         data = {list(_.keys())[0]: list(_.values())[0] for _ in data}
-        return cls.from_dict(data, recursive=recursive, read_marks=read_marks, **kwargs)
+        return cls.from_dict(data, recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
 
     def __init__(self, data: Dict[str, any] = None, parent=None, mark=None, child_mark=None):
         super(CfgDict, self).__init__()

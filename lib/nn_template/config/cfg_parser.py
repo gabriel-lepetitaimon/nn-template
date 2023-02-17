@@ -68,11 +68,12 @@ def format2str(v):
 
 
 class CfgParser:
-    def __init__(self, cfg_path):
+    def __init__(self, cfg_path, override: dict | None = None):
         self.path = cfg_path
         self.files = []
         self.base = None
         self.versions = None
+        self.override = CfgDict.from_dict(override, recursive=True, recursive_name=True)
 
     Error = ParseError
 
@@ -83,6 +84,10 @@ class CfgParser:
 
     def __getitem__(self, item):
         return self.get_config(item)
+
+    def get_configs(self, parse_obj=True):
+        for i in range(len(self)):
+            yield self.get_config(i, parse_obj=parse_obj)
 
     def get_config(self, version=0, parse_obj=True):
         if self.base is None:
@@ -132,6 +137,9 @@ class CfgParser:
 
         for f in reversed(self.files):
             versions, base = merge_versions_bases(versions, base, f.versions, f.base)
+
+        if self.override:
+            versions, base = merge_versions_bases(versions, base, [], self.override)
 
         self.versions = versions
         self.base = base

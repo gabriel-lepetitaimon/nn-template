@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 from torchmetrics import functional as metricsF
 import torchmetrics
 
-from steered_cnn.utils import clip_pad_center
+from nn_template.misc.clip_pad import clip_pad_center
 from ..config import default_config
 
 
