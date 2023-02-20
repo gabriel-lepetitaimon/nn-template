@@ -131,10 +131,12 @@ datasets:
 
         DRIVE-test:
               $: ..DRIVE-train-val
-              dir-prefix: '/home/gaby/These/Data/Fundus/Vessels/DRIVE/test/'
+              dir-prefix: '/home/gaby/These/Data/Fundus/Vessels/DRIVE/test/original/'
               data:
                   raw.path: '{ID:n}_test.tif'
                   gt.path: '{ID:n}_test.png'
+                  mask:
+                    path: 'mask/{ID:n}_test_mask.gif'
 
 ###########################################################
 #              ---   DATA-AUGMENTATIONS   ---             #

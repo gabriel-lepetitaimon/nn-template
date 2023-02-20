@@ -7,21 +7,23 @@ from .cfg_dict import CfgDict, CfgCollection, CfgList, UNDEFINED, UNSPECIFIED, H
 from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter
 
 
-class InvalidAttrError(Exception):
+class InvalidAttrDeclaration(Exception):
     def __init__(self, msg):
-        super(InvalidAttrError, self).__init__(msg)
+        super(InvalidAttrDeclaration, self).__init__(msg)
 
 
 class InvalidAttr(Exception):
-    def __init__(self, msg, info=''):
-        super(InvalidAttr, self).__init__(msg + '\n\t' + info)
-        self.msg = msg
+    def __init__(self, error, info='', mark=None):
+        super(InvalidAttr, self).__init__(error + (', ' + str(mark) + '.' if mark is not None else '.')
+                                         + ('\n\t' + info.replace('\n', '\n\t') if info else ''))
+        self.error = error
         self.info = info
+        self.mark = mark
 
 
 class IncompleteObjError(InvalidAttr):
-    def __init__(self, msg, info=None):
-        super(InvalidAttr, self).__init__(msg, info)
+    def __init__(self, error, info=None, mark=None):
+        super(InvalidAttr, self).__init__(error, info=info, mark=mark)
 
 
 class MetaCfgObj(type):
@@ -234,7 +236,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
         self._init_after_populate()
 
         for c in self.attr().values():
-            if isinstance(c, ObjCfg):
+            if getattr(c, 'init_after_populate', None) is not None:
                 c.init_after_populate()
 
     def __setitem__(self, key, value):
@@ -254,7 +256,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
                 try:
                     attr_value = attr.check_value(value, cfg_dict=self)
                 except InvalidAttr as e:
-                    raise ParseError(e.msg, mark, e.info) from None
+                    raise ParseError(e.error, mark, e.info) from None
                 if isinstance(attr_value, CfgDict):
                     if isinstance(value, CfgDict):
                         value = attr_value
@@ -270,7 +272,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
             attrs = self.attr(default=UNDEFINED)
         except InvalidAttr as e:
             from .cfg_parser import ParseError
-            raise ParseError(e.msg, self.mark, e.info) from None
+            raise ParseError(e.error, self.mark, e.info) from None
 
         missing_keys = {k for k, v in attrs.items() if v is UNDEFINED}
         if missing_keys:
@@ -696,7 +698,7 @@ class RefAttr(CfgAttr):
             else:                       # Absolute ref
                 collection = cfg_dict.root()[self.collection_path]
         except KeyError:
-            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}:\n '
+            raise InvalidAttrDeclaration(f'Impossible to build the reference attribute {self.fullname}:\n '
                                    f'Unknown path "{self.collection_path}".')
         return collection
 
@@ -724,12 +726,12 @@ class RefAttr(CfgAttr):
         name = super(RefAttr, self).__get__(instance, owner)
         collection = self.collection(instance)
         if not isinstance(collection, CfgCollection):
-            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}\n '
+            raise InvalidAttrDeclaration(f'Impossible to build the reference attribute {self.fullname}\n '
                                    f'Attribute found at path "{self.collection_path}" is not a CfgCollection '
                                    f'but {type(collection).__name__}.')
 
         if self.obj_types is not None and set(self.obj_types) != set(collection.obj_types):
-            raise InvalidAttrError(f'Impossible to build the reference attribute {self.fullname}:\n '
+            raise InvalidAttrDeclaration(f'Impossible to build the reference attribute {self.fullname}:\n '
                                    f'The CfgCollection found at {self.collection_path} contains '
                                    f'{collection.obj_types.__name__} instead of {self.obj_types}.')
 

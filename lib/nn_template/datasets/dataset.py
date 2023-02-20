@@ -27,6 +27,9 @@ class DataSource(Cfg.Obj):
     dir_prefix = Cfg.str('./')
     data = DataCollectionsAttr()
 
+    def _init_after_populate(self):
+        self.fetch_indexes()
+
     @property
     def indexes(self):
         idx = getattr(self, '_indexes', None)
@@ -42,16 +45,24 @@ class DataSource(Cfg.Obj):
     def fetch_indexes(self):
         indexes = {name: src.fetch_indexes() for name, src in self.data.items()}
         if len(indexes) == 1:
-            return pd.DataFrame(indexes)
+            name, indexes = next(iter(indexes.items()))
+            return pd.DataFrame({name: indexes['fullpath']})
         else:
             idx = None
             for name, src_idx in indexes.items():
-                src_idx = pd.DataFrame({name: src_idx})
+                if not len(src_idx):
+                    raise Cfg.InvalidAttr(f'Invalid data source specifications for "{self.fullname}.data.{name}"',
+                                          f'No data was provided by this source.', mark=self.data.get_mark(name),)
+                src_idx = pd.DataFrame({name: src_idx['fullpath']} |
+                                       {'_#_'+ID: src_idx[ID] for ID in src_idx.columns if ID != 'fullpath'})
                 if idx is None:
                     idx = src_idx
                 else:
-                    idx = pd.merge(idx, src_idx, left_index=True, right_index=True)
-            return idx
+                    try:
+                        idx = pd.merge(idx, src_idx)
+                    except pd.errors.MergeError:
+                        idx = pd.merge(idx, src_idx, how='cross')
+            return idx.drop(columns=[_ for _ in idx.columns if _.startswith('_#_')])
 
     def update_indexes(self):
         idx = self.fetch_indexes()
@@ -78,7 +89,7 @@ class DatasetSourceRef(Cfg.Obj):
         elif 0 <= self.range.start <= 1:
             start = math.floor(self.range.start * n)
         else:
-            start = self.range.start % n
+            start = math.floor(self.range.start) % n
 
         if self.range.stop is None:
             stop = n
@@ -87,12 +98,12 @@ class DatasetSourceRef(Cfg.Obj):
         elif 0 <= self.range.stop <= 1:
             stop = math.floor(self.range.stop * n)
         else:
-            stop = self.range.stop % n
+            stop = math.floor(self.range.stop) % n
 
         if self.range.step is None:
             step = 1
         elif -1 < self.range.step < 1:
-            step = self.range.step * n
+            step = math.floor(self.range.step * n)
         else:
             step = math.floor(self.range.step)
 

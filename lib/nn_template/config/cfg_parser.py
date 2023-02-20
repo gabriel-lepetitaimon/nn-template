@@ -6,7 +6,7 @@ from collections import abc
 import numpy as np
 
 from .cfg_dict import CfgDict
-from .cfg_object import UNDEFINED, CfgCollectionType
+from .cfg_object import UNDEFINED, CfgCollectionType, InvalidAttr
 
 
 _registered_cfg_object = {}
@@ -18,14 +18,14 @@ def register_obj(path: str, collection=False, type=None):
     else:
         registered_obj = _registered_cfg_object[path]
 
-        from .cfg_object import InvalidAttrError
+        from .cfg_object import InvalidAttrDeclaration
         if isinstance(registered_obj, CfgCollectionType) != bool(collection):
             if collection:
-                raise InvalidAttrError(f'Configuration objects was already registered at path="{path}" as a non-collection.')
+                raise InvalidAttrDeclaration(f'Configuration objects was already registered at path="{path}" as a non-collection.')
             else:
-                raise InvalidAttrError(f'Configuration objects was already registered at path="{path}" as a collection.')
+                raise InvalidAttrDeclaration(f'Configuration objects was already registered at path="{path}" as a collection.')
         elif not collection and type in path:
-            raise InvalidAttrError(f'A configuration object is already registered at path="{path}", type="{type}".')
+            raise InvalidAttrDeclaration(f'A configuration object is already registered at path="{path}", type="{type}".')
 
     def register(cfg_obj: type):
         if not collection:
@@ -37,7 +37,7 @@ def register_obj(path: str, collection=False, type=None):
                 _registered_cfg_object[path] = CfgCollectionType(obj_types=cfg_obj, default_key=default_key)
             else:
                 if cfg_obj in cfg_collection.obj_types:
-                    raise InvalidAttrError(f'A configuration object is already registered at path="{path}", type="{cfg_obj}".')
+                    raise InvalidAttrDeclaration(f'A configuration object is already registered at path="{path}", type="{cfg_obj}".')
                 cfg_collection.obj_types = cfg_collection.obj_types + (cfg_obj,)
         return cfg_obj
     return register
@@ -103,6 +103,9 @@ class CfgParser:
                 CfgParser.parse_registered_cfg(cfg, inplace=True)
             except ParseError as e:
                 raise ParseError(error=e.error, mark=e.mark, info=e.info) from None
+            except InvalidAttr as e:
+                raise ParseError(error=e.error, mark=e.mark, info=e.info) from None
+
         return cfg
 
     def get_version(self, i):

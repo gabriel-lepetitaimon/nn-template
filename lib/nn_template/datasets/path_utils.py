@@ -77,6 +77,9 @@ class PathTemplate:
             temp = template.pop(0)
             path = path[len(temp):]
 
+        if not template and not vars:
+            return {}
+
         if isinstance(template[-1], PathToken):
             if not path.endswith(template[-1]):
                 raise error
@@ -150,6 +153,9 @@ class PathTemplate:
             case "pandas":
                 import pandas as pd
                 if vars:
-                    return pd.DataFrame(vars).set_index([_ for _ in vars[0].keys() if _ != 'fullpath'])['fullpath']
+                    if not self.vars:
+                        return pd.DataFrame(vars)['fullpath']
+                    else:
+                        return pd.DataFrame(vars).set_index([_ for _ in vars[0].keys() if _ != 'fullpath'])['fullpath']
                 else:
                     return pd.DataFrame()

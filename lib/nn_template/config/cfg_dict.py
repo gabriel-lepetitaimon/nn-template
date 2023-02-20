@@ -583,7 +583,7 @@ class CfgCollection(CfgDict):
         self._init_after_populate()
         for obj in self.values():
             from .cfg_object import ObjCfg
-            if isinstance(obj, ObjCfg):
+            if getattr(obj, 'init_after_populate', None) is not None:
                 obj.init_after_populate()
 
     @property

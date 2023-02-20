@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+import pandas as pd
 
 from ..config import Cfg
 
@@ -55,8 +56,9 @@ class FilesPathLoader(DataLoader):
 
     def fetch_indexes(self):
         from .path_utils import PathTemplate
-        return PathTemplate(self.path, format_output='pandas') \
-            .parse_dir(self.dir, recursive=self.search_recursive)
+
+        return pd.DataFrame(PathTemplate(self.path, format_output='dict')
+                            .parse_dir(self.dir, recursive=self.search_recursive))
 
 
 class ImageLoader(FilesPathLoader):
