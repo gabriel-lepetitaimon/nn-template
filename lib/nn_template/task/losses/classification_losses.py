@@ -1,21 +1,16 @@
 from .loss_core import Loss, register_loss, Cfg
-import torch.nn.functional as F
+from torch.nn import BCELoss, BCEWithLogitsLoss, CrossEntropyLoss as CELoss
 
 
 @register_loss('cross-entropy')
 class CrossEntropyLoss(Loss):
     with_logits = Cfg.bool(True)
 
-    def create(self, n_classes):
-        if n_classes == 'binary':
+    def create(self):
+        if self.root().get('task.n-classes', None) == 'binary':
             if self.with_logits:
-                def binary_cross_entropy(pred, target):
-                    return F.binary_cross_entropy_with_logits(pred, target.float())
+                return BCEWithLogitsLoss()
             else:
-                def binary_cross_entropy(pred, target):
-                    return F.binary_cross_entropy(pred, target.float())
-            return binary_cross_entropy
+                return BCELoss()
         else:
-            def cross_entropy(pred, target):
-                return F.cross_entropy(pred, target.float())
-            return cross_entropy
+            return CELoss(ignore_index=-1)

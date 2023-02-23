@@ -93,7 +93,7 @@ class DataAugmentationCfg(Cfg.Obj):
             if self.rotation.enabled:
                 patch_shape = patch_shape*np.sqrt(2)
             if self.elastic.enabled:
-                patch_shape += +max(3*self.elastic.alpha, 3*self.elastic.sigma)
+                patch_shape = patch_shape + max(3*self.elastic.alpha, 3*self.elastic.sigma)
             patch_shape = tuple(int(math.ceil(_)) for _ in patch_shape)
             da.crop(shape=patch_shape, padding=self.random_crop.padding)
             if patch_shape != self.random_crop.shape:
@@ -227,7 +227,9 @@ class DataAugment:
                 data[field] = self.fields_aug(data[field], rng_states)
 
             if self.to_torch:
-                return {k: to_tensor(v) for k, v in data.items()}
+                data = {k: to_tensor(v) for k, v in data.items()}
+                for label in self.labels:
+                    data[label] = data[label].long()
 
             return data
 

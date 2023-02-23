@@ -1,3 +1,4 @@
+import os
 from nn_template import Cfg
 
 
@@ -5,10 +6,10 @@ from nn_template import Cfg
 class HardwareCfg(Cfg.Obj):
     debug = Cfg.oneOf(False, True, 'fast', default=False)
     gpus = Cfg.str(None)
-    num_worker = 0
+    num_workers = Cfg.oneOf('auto', Cfg.int(min=0), default='auto')
 
     minibatch_splits = 1
-    precision = Cfg.oneOf('64', '32', 'bf16', '16')
+    precision = Cfg.oneOf('64', '32', 'bf16', '16', default=None)
     cudnn_benchmark = False
 
     @gpus.checker
@@ -17,6 +18,15 @@ class HardwareCfg(Cfg.Obj):
             v = [int(_.strip()) for _ in v.split(',') if _.strip()]
             return v
         return int(v)
+
+    @num_workers.post_checker
+    def check_num_workers(self, v):
+        cpus = os.cpu_count()
+        match v:
+            case 'auto':
+                return cpus
+            case int():
+                return min(cpus, v)
 
     def lightning_args(self):
         args = dict(fast_dev_run=self.debug,

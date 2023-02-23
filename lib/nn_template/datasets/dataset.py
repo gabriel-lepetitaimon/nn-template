@@ -131,16 +131,21 @@ class DatasetCfg(Cfg.Obj):
     def dataset(self):
         return Dataset(self, fields=self.root()['datasets.fields'])
 
+    def sample_count(self):
+        l = len(self.get_indexes())
+        return l * self.augment.factor if self.augment else l
+
 
 class DatasetFields(Cfg.Obj):
     images = Cfg.collection(str, default={})
     labels = Cfg.collection(str, default={})
+    masks = Cfg.collection(str, default={})
     vectors = Cfg.collection(str, default={})
     angles = Cfg.collection(str, default={})
 
     def all_fields(self):
         fields = {}
-        for f in (self.images, self.labels, self.vectors, self.angles):
+        for f in (self.images, self.labels, self.masks, self.vectors, self.angles):
             fields.update(f)
         return fields
 
@@ -153,6 +158,10 @@ class DatasetFields(Cfg.Obj):
         return list(self.labels.keys())
 
     @property
+    def masks_keys(self):
+        return list(self.masks.keys())
+
+    @property
     def vectors_keys(self):
         return list(self.vectors.keys())
 
@@ -161,6 +170,7 @@ class DatasetFields(Cfg.Obj):
         return list(self.angles.keys())
 
 
+########################################################################################################################
 @Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
     fields: DatasetFields = Cfg.obj()
@@ -170,17 +180,27 @@ class DatasetsCfg(Cfg.Obj):
     validate: DatasetCfg = Cfg.obj(shortcut='source')
     test = Cfg.collection(obj_types=DatasetCfg)
 
-    def create_all_dataloaders(self):
+    def create_train_val_dataloaders(self):
         batch_size = self.root()['training'].minibatch_size
-        num_workers = self.root()['hardware'].num_worker
-        train = DataLoader(self.train.dataset(),
-                   pin_memory=True, shuffle=True, batch_size=batch_size, num_workers=num_workers)
-        validate = DataLoader(self.validate.dataset(),
-                              pin_memory=True, num_workers=6, batch_size=6)
-        test = {k: DataLoader(v.dataset(), pin_memory=True, num_workers=6, batch_size=6)
-                 for k, v in self.test.items()}
+        num_workers = self.root()['hardware'].num_workers
 
-        return train, validate, test
+        train = DataLoader(self.train.dataset(),
+                           pin_memory=True, shuffle=True,
+                           batch_size=batch_size, num_workers=num_workers)
+        validate = DataLoader(self.validate.dataset(),
+                              pin_memory=True,
+                              num_workers=6, batch_size=6)
+        return train, validate
+
+    def create_test_dataloaders(self):
+        return [DataLoader(d.dataset(), pin_memory=True,
+                           num_workers=6, batch_size=6)
+                for d in self.test.values()]
+
+    def create_all_dataloaders(self):
+        train, val = self.create_train_val_dataloaders()
+        test = self.create_test_dataloaders()
+        return train, val, test
 
 
 class Dataset(TorchDataset):
@@ -193,7 +213,7 @@ class Dataset(TorchDataset):
         self._srcs = [_.source for _ in self.dataset_cfg.source.list()]
 
         kwargs = dict(images=fields.images_keys,
-                      labels=fields.labels_keys,
+                      labels=fields.labels_keys+fields.masks_keys,
                       angles=fields.angles_keys,
                       vectors=fields.vectors_keys,
                       to_torch=True, transpose_input=False)
@@ -203,10 +223,11 @@ class Dataset(TorchDataset):
             self._augment = DataAugment().compile(**kwargs)
 
     def __len__(self):
-        return len(self._idxs)
+        l = len(self._idxs)
+        return l * self.dataset_cfg.augment.factor if self.dataset_cfg.augment else l
 
     def __getitem__(self, item):
-        id_src, id_sample = self._idxs[item]
+        id_src, id_sample = self._idxs[item % len(self._idxs)]
         sample = self._srcs[id_src].get_sample(id_sample)
         fields = {}
         for field, expr in self.fields.all_fields().items():
@@ -216,4 +237,8 @@ class Dataset(TorchDataset):
                 import torch
                 fields[field] = eval(expr, {'np': np, 'torch': torch}, sample)
         fields = self._augment(**fields)
+        for f in self.fields.masks_keys:
+            fields[f] = fields[f] > 0
+        for f in self.fields.labels_keys:
+                fields[f] = fields[f].long()
         return fields

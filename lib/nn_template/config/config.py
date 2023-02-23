@@ -140,7 +140,7 @@ class Cfg:
     ref = RefAttr
 
     Parser = CfgParser
-    Obj = ObjCfg
+    Obj = CfgObj
     Collection = CfgCollection
     Dict = CfgDict
     Attr = CfgAttr

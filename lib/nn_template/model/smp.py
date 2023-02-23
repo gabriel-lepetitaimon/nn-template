@@ -21,7 +21,7 @@ ARCHITECTURE = {
 
 
 @Cfg.register_obj('model', type='smp')
-class SMPModel(Cfg.Obj):
+class SMPModelCfg(Cfg.Obj):
     architecture = Cfg.strMap(ARCHITECTURE)
     encoder_name: str = 'resnet34'
     encoder_depth: int = Cfg.int(min=3, max=5, default=5)
@@ -33,6 +33,8 @@ class SMPModel(Cfg.Obj):
         arch_opts = list(inspect.signature(Arch).parameters.values())
 
         n_classes = self.root()['task'].n_classes
+        if n_classes == 'binary':
+            n_classes = 2
         cfg = dict(in_channels=in_channels, classes=n_classes, activation=activation)
 
         attr = self.attr()
@@ -43,7 +45,7 @@ class SMPModel(Cfg.Obj):
                 cfg[k] = attr[k]
             elif k in arch_opts:
                 cfg[k] = v
-            else:
+            elif k not in ('type',):
                 print(f'Warning! Useless parameter "{k}" for architecture {self["architecture"]}')
         if opt:
             cfg.update({k: v for k, v in opt.items() if k in arch_opts})

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import Cfg
+from ..misc.clip_pad import clip_pad_center
 
 
 class DataCollectionsAttr(Cfg.multi_type_collection):
@@ -50,8 +51,8 @@ class FilesPathLoader(DataLoader):
             dir = self.source.get('dir-prefix', dir)
         dir += self.directory
         if not os.path.exists(dir):
-            raise Cfg.InvalidAttr(f"The source directory for {self.name} is invalid",
-                                  f'Path "{dir}" does not exist.')
+            raise Cfg.InvalidAttr(f'The source directory for "{self.fullname}" is invalid',
+                                  f'Path "{dir}" does not exist.', mark=self.source.mark)
         return dir
 
     def fetch_indexes(self):
@@ -62,12 +63,19 @@ class FilesPathLoader(DataLoader):
 
 
 class ImageLoader(FilesPathLoader):
-    resize = Cfg.shape(dim=2, default=None, nullable=True)
+    clip_pad = Cfg.shape(dim=2, default=None)
+    clip_pad_center = Cfg.oneOf('center', Cfg.shape(dim=2, default=None), default='center')
+    resize = Cfg.shape(dim=2, default=None)
     interpolation = Cfg.oneOf('auto', 'nearest', 'linear', 'area', 'cubic', 'lanczos4', default='auto')
 
     def fetch_data(self, path):
         import cv2
         img = cv2.imread(path)
+        if self.clip_pad:
+            img = img.transpose((2, 0, 1))
+            center = (0.5, 0.5) if self.clip_pad_center == 'center' else self.clip_pad_center
+            img = clip_pad_center(img, center=center, shape=self.clip_pad)
+            img = img.transpose((1, 2, 0))
         if self.resize:
             img = cv2.resize(img, self.resize, self.interp_resize)
         return img
@@ -118,12 +126,13 @@ class Label2D(ImageLoader):
 
 class Mask2D(ImageLoader):
     mask: str = 'mean'
+    threshold = Cfg.float(min=0, max=1, default=0.5)
 
     def fetch_data(self, path):
         img = super(Mask2D, self).fetch_data(path)
 
         if self.mask == 'mean':
-            return img.mean(axis=2) > 128
+            return img.mean(axis=2) > 128*self.threshold
         else:
             import cv2
             import numpy as np
@@ -131,7 +140,7 @@ class Mask2D(ImageLoader):
             libs = {'np': np, 'cv2': cv2}
             mask = eval(self.mask, channels, libs)
             if mask.dtype == np.uint8:
-                mask = mask > 128
+                mask = mask > 128*self.threshold
             elif mask.dtype == np.float:
-                mask = mask > .5
+                mask = mask > self.threshold
             return mask

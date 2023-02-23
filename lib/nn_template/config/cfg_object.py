@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from copy import copy
 from types import UnionType
 from collections.abc import Iterable
 import weakref
@@ -23,7 +24,7 @@ class InvalidAttr(Exception):
 
 class IncompleteObjError(InvalidAttr):
     def __init__(self, error, info=None, mark=None):
-        super(InvalidAttr, self).__init__(error, info=info, mark=mark)
+        super(IncompleteObjError, self).__init__(error, info=info, mark=mark)
 
 
 class MetaCfgObj(type):
@@ -78,10 +79,11 @@ def _check_type_subclass(typehint, obj_types):
 
 def _type2attr(typehint, value=UNDEFINED):
     if isinstance(value, ObjAttr):
-        if not issubclass(typehint, ObjCfg):
+        if not issubclass(typehint, CfgObj):
             raise TypeError
-        if value.obj_types is not None and not _check_type_subclass(typehint, value.obj_types):
-            raise TypeError
+        if value.obj_types is not None:
+            if not _check_type_subclass(typehint, value.obj_types):
+                raise TypeError
         else:
             if isinstance(typehint, UnionType):
                 raise TypeError
@@ -89,7 +91,7 @@ def _type2attr(typehint, value=UNDEFINED):
         return value
     elif isinstance(value, RefAttr):
         if value.obj_types is not None:
-            if all(issubclass(_, typehint) for _ in value.obj_types):
+            if _check_type_subclass(typehint, value.obj_types):
                 raise TypeError
         else:
             value.obj_types = typehint.__args__ if isinstance(typehint, UnionType) else typehint
@@ -105,6 +107,9 @@ def _type2attr(typehint, value=UNDEFINED):
         else:
             value.values = typehint.__args__ if isinstance(typehint, UnionType) else typehint
         return value
+    elif value is CfgObj:
+        raise InvalidAttrDeclaration("Warning: CfgObj must not be assigned as a class attribute.\n"
+                                     'You should probably use the CfgAttr "Cfg.obj()" instead. (I know its confusing...)')
 
     match typehint.__name__ if isinstance(typehint, type) else typehint:
         case "int": attr = IntAttr
@@ -113,7 +118,7 @@ def _type2attr(typehint, value=UNDEFINED):
         case "str": attr = StrAttr
         case "list": attr = lambda default: OneOfAttr(*typehint, default=default)
         case _:
-            if isinstance(typehint, ObjCfg):
+            if isinstance(typehint, CfgObj):
                 attr = lambda default: ObjAttr(obj_types=typehint, default=default)
             elif isinstance(typehint, CfgCollection):
                 attr = lambda default: CollectionAttr(obj_types=typehint.obj_types, default=default)
@@ -135,10 +140,11 @@ class CfgAttr:
         if nullable is None:
             nullable = default is None
         self.nullable = nullable
-        try:
-            default = self.check_value(default)
-        except Exception:
-            pass
+        if default is not UNDEFINED:
+            try:
+                default = self.check_value(default)
+            except Exception:
+                pass
         self.default = default
         self._parent_cfg_class = None
 
@@ -202,19 +208,23 @@ class CfgAttr:
         return func
 
     @property
-    def parent_cfg_class(self) -> MetaCfgObj:
-        return self._parent_cfg_class
+    def parent_cfg_class(self) -> MetaCfgObj | None:
+        return getattr(self, '_parent_cfg_class', None)
 
     @property
     def fullname(self):
-        return self.parent_cfg_class.__name__ + '.' + self.name
+        parent = self._parent_cfg_class
+        if parent:
+            return self.parent_cfg_class.__name__ + '.' + self.name
+        else:
+            return self.name
 
 
-class ObjCfg(CfgDict, metaclass=MetaCfgObj):
+class CfgObj(CfgDict, metaclass=MetaCfgObj):
     __attr__ = {}
 
     def __init__(self, data=None, parent=None):
-        super(ObjCfg, self).__init__(data=None, parent=parent)
+        super(CfgObj, self).__init__(data=None, parent=parent)
         self._attr_values = {}
 
         #if data is None:
@@ -265,7 +275,7 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
                         attr_value._parent = weakref.ref(self)
                         attr_value._name = key
             self._attr_values[attr_name] = attr_value
-        super(ObjCfg, self).__setitem__(key, value)
+        super(CfgObj, self).__setitem__(key, value)
 
     def check_integrity(self, recursive=True):
         try:
@@ -286,11 +296,11 @@ class ObjCfg(CfgDict, metaclass=MetaCfgObj):
 
         if recursive:
             for attr in attrs.values():
-                if isinstance(attr, ObjCfg):
+                if isinstance(attr, CfgObj):
                     attr.check_integrity(recursive=recursive)
                 if isinstance(attr, CfgCollection):
                     for item in attr.values():
-                        if isinstance(item, ObjCfg):
+                        if isinstance(item, CfgObj):
                             item.check_integrity(recursive=recursive)
 
     @classmethod
@@ -379,6 +389,8 @@ class ShapeAttr(CfgAttr):
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
+            if isinstance(value, str):
+                value = value.strip('() \t').split(',')
             if not isinstance(value, (tuple, list)):
                 value = (value,)
                 if self.dim is not None:
@@ -456,6 +468,16 @@ class StrAttr(CfgAttr):
 
 
 class BoolAttr(CfgAttr):
+
+    @staticmethod
+    def interpret(value, nullable=False) -> bool | None:
+        if nullable:
+            if value is None or value == '':
+                return None
+
+        if isinstance(value, str):
+            return value.strip().lower() == 'true'
+        return bool(value)
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             return bool(value)
@@ -481,26 +503,29 @@ class OneOfAttr(CfgAttr):
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         for v in self.values:
+            interpreted_value = copy(value)
             if isinstance(v, CfgAttr):
                 try:
-                    value = v.check_value(value, cfg_dict)
+                    interpreted_value = v.check_value(interpreted_value, cfg_dict)
                 except InvalidAttr:
                     pass
                 else:
                     break
             else:
-                if type(v) != type(value):
+                if type(v) != type(interpreted_value):
                     match v:
                         case int(), float():
-                            value = FloatAttr.interpret(value)
+                            interpreted_value = FloatAttr.interpret(interpreted_value)
                         case str():
-                            value = str(value)
-                if value == v:
+                            interpreted_value = str(interpreted_value)
+                        case bool():
+                            interpreted_value = BoolAttr.interpret(interpreted_value)
+                if interpreted_value == v:
                     break
         else:
             raise InvalidAttr(f"{value} is invalid for attribute {self.fullname}",
-                                 f"Must be one of {self.values}.")
-        return v
+                              f"Must be one of {self.values}.")
+        return interpreted_value
 
 
 class StrMapAttr(CfgAttr):
@@ -575,6 +600,15 @@ class ObjAttr(CfgAttr):
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         mark = cfg_dict.get_mark(self.name)
 
+        # Pre-Format value
+        if not isinstance(value, CfgDict):
+            if isinstance(value, Mapping):
+                value = CfgDict(value, parent=cfg_dict)
+            else:
+                if self.shortcut is None:
+                    raise InvalidAttr(f"{str(value)} is invalid for attribute {self.fullname}")
+                value = CfgDict({self.shortcut: value}, parent=cfg_dict)
+
         obj_type = self.obj_types
         if isinstance(obj_type, Mapping):
             # In the case of multiple types accepted. Infer the correct one from the type selector attribute.
@@ -590,14 +624,9 @@ class ObjAttr(CfgAttr):
                                      f"Must be one of: {','.join(self.obj_types.keys)}.")
 
         if not isinstance(value, obj_type):
-            if isinstance(value, Mapping):
-                if not isinstance(value, CfgDict):
-                    value = CfgDict(value, parent=cfg_dict)
-            else:
-                if self.shortcut is None:
-                    raise InvalidAttr(f"{str(value)} is invalid for attribute {self.fullname}")
-                value = CfgDict({self.shortcut: value}, parent=cfg_dict)
-        return self.obj_types.from_cfg(value, mark=mark)
+            return obj_type.from_cfg(value, mark=mark)
+        else:
+            return value
 
 
 class ObjListAttr(CfgAttr):

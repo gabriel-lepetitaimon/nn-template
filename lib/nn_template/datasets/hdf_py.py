@@ -14,7 +14,7 @@ def create_generic_hdf_datasets(dataset_cfg: Cfg.Dict, file_path=None, seed=1234
     from .datasets import DEFAULT_DATA_PATH
     if file_path is None:
         file_path = DEFAULT_DATA_PATH
-    hdf_path = P.join(file_path, dataset_cfg.path)
+    hdf_path = P.join(file_path, dataset_cfg.cfg_path)
 
     train = create_generic_hdf_dataset(dataset_cfg, 'task', hdf_path, seed, data_augmentations)
     valid = create_generic_hdf_dataset(dataset_cfg, 'validation', hdf_path, seed, data_augmentations)

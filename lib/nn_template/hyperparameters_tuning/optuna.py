@@ -1,12 +1,15 @@
+from functools import cached_property
 import inspect
 import optuna
-from functools import cached_property
+import traceback
 
-from nn_template.config import Cfg
-from nn_template.config.cfg_parser import ParseError
-from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter, HyperParametersOptimizerEngine, \
+from ..config import Cfg
+from ..config.cfg_parser import ParseError
+from ..hyperparameters_tuning.generic_optimizer import HyperParameter, HyperParametersOptimizerEngine, \
     register_hp_optimizer_engine
-from nn_template.training import TrainingCfg, check_metric_name
+from ..training import TrainingCfg, check_metric_name, MonitoredMetricCfg
+from ..hardware import HardwareCfg
+from ..callbacks.optuna import PyTorchLightningPruningCallback
 
 from typing import List
 
@@ -45,16 +48,7 @@ class OptunaPrunerCfg(Cfg.Obj):
         'Threshold': optuna.pruners.ThresholdPruner,
     }
     type = Cfg.oneOf(*list(pruners.keys()))
-    monitor = Cfg.str(None)
-
-    @monitor.post_checker
-    def monitor_check(self, value: str | None):
-        if value is None:
-            value = self._default_monitored_metrics()
-        check_metric_name(self, value, 'monitor')
-        if not value.startswith(('train', 'val')):
-            raise Cfg.InvalidAttr(f'Invalid pruner monitored metric: "{value}"',
-                                  'Pruner can only monitor metrics computed on the train or the validation dataset.')
+    monitor: MonitoredMetricCfg = Cfg.obj(None)
 
     def create(self):
         pruner = OptunaPrunerCfg.pruners[self.type]
@@ -66,9 +60,13 @@ class OptunaPrunerCfg(Cfg.Obj):
         kwargs = {k: v for k, v in self.items() if k in pruner_arg_keys}
         return pruner(**kwargs)
 
-    def _default_monitored_metrics(self):
+    def _default_monitored_metrics(self) -> MonitoredMetricCfg:
         training_cfg: TrainingCfg = self.root()['training']
-        return training_cfg.objective
+        return training_cfg.objective_ckpt_cfg
+
+    @property
+    def monitored_metric(self) -> MonitoredMetricCfg:
+        return self.monitor if self.monitor is not None else self._default_monitored_metrics()
 
 
 class OptunaRDBStorageCfg(Cfg.Obj):
@@ -88,17 +86,17 @@ class OptunaRDBStorageCfg(Cfg.Obj):
         return optuna.storages.RDBStorage(url=self.url, engine_kwargs=self.engine_kwargs, **kwargs)
 
 
-__optuna_retry = 0
-
-
 @Cfg.register_obj("optuna")
 class OptunaCfg(Cfg.Obj):
+    _optuna_retry = 0
+
     n_runs = Cfg.int()
     storage: OptunaRDBStorageCfg = Cfg.obj(shortcut='url', default=None)
     study_name = Cfg.str(default=None)
     direction = Cfg.oneOf('minimize', 'maximize', default='minimize')
     sampler: OptunaSamplerCfg = Cfg.obj(shortcut='type', default=None, nullable=True)
     pruner: OptunaPrunerCfg = Cfg.obj(shortcut='type', default=None, nullable=True)
+    max_retry = 3
 
     def init_after_populate(self):
         self._engine = OptunaEngine(self.root())
@@ -114,7 +112,6 @@ class OptunaCfg(Cfg.Obj):
             return self.cfg.root()
 
         def __exit__(self, exc_type, exc_val, exc_tb):
-            global __optuna_retry
             trial = self.cfg.trial
             if isinstance(trial, optuna.Trial):
                 if exc_type is None:
@@ -124,8 +121,16 @@ class OptunaCfg(Cfg.Obj):
             self.cfg.clear_trial()
 
             if exc_type is not None:
-                __optuna_retry += 1
-                return __optuna_retry >= self.max_retry
+                if self.cfg.root().get('hardware.debug', False):
+                    return
+
+                self.cfg._optuna_retry += 1
+                max_retry_reached = self.cfg._optuna_retry >= self.max_retry
+                if not max_retry_reached:
+                    traceback.print_exc()
+                    return "Continue execution despite the exception"
+                return
+
 
     def trial_ctx(self, max_retry=5):
         return OptunaCfg.TrialContext(self, max_retry=max_retry)
@@ -255,6 +260,40 @@ class OptunaCfg(Cfg.Obj):
             self.engine.suggest(trial)
         return trial
 
+    def optimize(self, func, *args, **kwargs):
+        if self.hyper_parameter_search_complete():
+            return
+
+        hardware: HardwareCfg = self.root()['hardware']
+        training: TrainingCfg = self.root()['training']
+        debug_run = hardware.debug
+        def run_trial(trial):
+            self._trial = trial
+            self.root()['experiment.run_id'] = trial.number
+            self.engine.suggest(trial)
+
+            try:
+                opti_value = func(*args, **kwargs)
+            except optuna.TrialPruned as e:
+                raise e
+            except Exception as e:
+                self._optuna_retry += 1
+                max_retry_reached = self._optuna_retry >= self.max_retry
+                if not max_retry_reached and not debug_run:
+                    traceback.print_exc()
+                    raise OptunaCfg.IgnoreException() from e
+                else:
+                    raise e
+
+            if self.hyper_parameter_search_complete() or debug_run:
+                self.study.stop()
+            if training.objective_ckpt_cfg.mode == 'max':
+                opti_value = -opti_value
+            return opti_value
+
+        self.study.optimize(run_trial, show_progress_bar=True, catch=OptunaCfg.IgnoreException)
+        self.clear_trial()
+
     def _load_trial(self, trial: optuna.trial.FrozenTrial, merge=False):
         previous_trial = self.trial
         if isinstance(previous_trial, optuna.Trial):
@@ -300,17 +339,15 @@ class OptunaCfg(Cfg.Obj):
             return prune
         return False
 
-    def pytorch_lightnings_callbacks(self) -> list[optuna.integration.PyTorchLightningPruningCallback]:
+    def pytorch_lightnings_callbacks(self) -> list[PyTorchLightningPruningCallback]:
         """
         Generate a pruning callback
         :return:
         """
         trial = self.trial
-        monitor = self.pruner.monitor
-        if monitor is None:
-            monitor = self.root()['training'].objective
+        monitor = self.pruner.monitored_metric
         if isinstance(trial, optuna.Trial):
-            return [optuna.integration.pytorch_lightning.PyTorchLightningPruningCallback(trial, monitor)]
+            return [PyTorchLightningPruningCallback(trial, monitor=monitor.metric, mode=monitor.mode)]
         else:
             return []
 
@@ -323,6 +360,10 @@ class OptunaCfg(Cfg.Obj):
     def clear_trial(self):
         self.engine.clear_suggestion()
         self._trial = None
+
+    class IgnoreException(Exception):
+        def __init__(self):
+            super().__init__("Exception should be ignored.")
 
 
 # =====================================================================================================================

@@ -10,9 +10,10 @@ from . import Cfg
 from .task import LightningTaskCfg
 from .hardware import HardwareCfg
 from .datasets import DatasetsCfg
+from .experiment import ExperimentCfg
 
 
-class CheckpointCfg(Cfg.Obj):
+class MonitoredMetricCfg(Cfg.Obj):
     metric = Cfg.str()
     mode = Cfg.oneOf('min', 'max', default='max')
 
@@ -23,10 +24,15 @@ class CheckpointCfg(Cfg.Obj):
             self['mode'] = 'min'
         check_metric_name(self, metric, 'checkpoint')
         if not metric.startswith(('val', 'train')):
-            raise Cfg.InvalidAttr(f'Invalid metric for checkpoint: "{metric}"',
-                                  'Metrics monitored by checkpoint must be computed on '
+            raise Cfg.InvalidAttr(f'Invalid metric: "{metric}"',
+                                  'Monitored metrics during training must be computed on '
                                   'the validation or training datasets.')
         return metric
+
+
+class CheckpointCfg(MonitoredMetricCfg):
+    metric = Cfg.str()
+    mode = Cfg.oneOf('min', 'max', default='max')
 
     def create(self) -> ModelCheckpoint:
         self._checkpoint = ModelCheckpoint(monitor=self.metric, mode=self.mode)
@@ -48,13 +54,14 @@ class CheckpointCfg(Cfg.Obj):
 
 @Cfg.register_obj("training")
 class TrainingCfg(Cfg.Obj):
-    seed = 1234
-    minibatch = Cfg.int(None)
-    gradient_clip = 0
     max_epoch = Cfg.int()
+    minibatch = Cfg.int(None)
+    gradient_clip = Cfg.int(0)
+
+    seed = Cfg.int(1234)
 
     checkpoints = Cfg.obj_list(main_key='metric', obj_types=CheckpointCfg)
-    validate_every_n_epoch = Cfg.float(min=0)
+    validate_every_n_epoch = Cfg.int(min=0)
     objective = Cfg.str('val-acc')
     monitor = Cfg.strList(default=None)
     direction = Cfg.oneOf('max', 'min', default='max')
@@ -94,50 +101,38 @@ class TrainingCfg(Cfg.Obj):
 
     def _hardware_args(self):
         hardware: HardwareCfg = self.root()['hardware']
-        return dict(gpus=hardware.gpus,
-                    progress_bar_refresh_rate=1 if hardware.debug else 0,
+        experiment: ExperimentCfg = self.root()['experiment']
+        return dict(gpus=hardware.gpus, logger=experiment.wandb.logger,
+                    accelerator='gpu',
+                    enable_progress_bar=hardware.debug,
                     fast_dev_run=10 if hardware.debug == 'fast' else None)
 
-    def create_trainer(self, callbacks, setup_dataset=True, **trainer_kwargs) -> pl.Trainer:
+    def create_trainer(self, callbacks, **trainer_kwargs) -> pl.Trainer:
         hardware: HardwareCfg = self.root()['hardware']
+        experiment: ExperimentCfg = self.root()['experiment']
+        datasets: DatasetsCfg = self.root()['datasets']
 
         for name, checkpoint in self.checkpoints.items():
             callbacks += [checkpoint.create()]
 
-        kwargs = dict(callbacks=callbacks,
-                      max_epochs=self.max_epoch, check_val_every_n_epoch=self.validate_every_n_epoch,
+        max_epoch = 2 if hardware.debug else self.max_epoch
+        check_val_every_n_epoch = 1 if hardware.debug else self.validate_every_n_epoch
+
+        kwargs = dict(callbacks=callbacks, num_sanity_val_steps=2 if experiment.run_id <= 1 else 0,
+                      max_epochs=max_epoch, check_val_every_n_epoch=check_val_every_n_epoch,
+                      log_every_n_steps=min(50, (datasets.train.sample_count()/self.minibatch_size)//3),
                       accumulate_grad_batches=hardware.minibatch_splits, gradient_clip_val=self.gradient_clip)
         if hardware.precision:
             kwargs['precision'] = hardware.precision
 
         trainer = pl.Trainer(** self._hardware_args() | kwargs | trainer_kwargs)
-
-        if setup_dataset:
-            datasets_cfg: DatasetsCfg = self.root()['datasets']
-            trainer.train_dataloader = DataLoader(datasets_cfg.train.dataset(),
-                                                  pin_memory=True,
-                                                  shuffle=True,
-                                                  batch_size=self.minibatch_size,
-                                                  num_workers=hardware.num_worker)
-            trainer.val_dataloaders = DataLoader(datasets_cfg.validate.dataset(),
-                                                 pin_memory=True,
-                                                 num_workers=6,
-                                                 batch_size=6)
         return trainer
 
-    def create_tester(self, callbacks, setup_datasets=True, **tester_kwargs) -> pl.Trainer:
+    def create_tester(self, callbacks, **tester_kwargs) -> pl.Trainer:
         kwargs = dict(callbacks=callbacks,)
 
         tester = pl.Trainer(**self._hardware_args() | kwargs | tester_kwargs)
-
-        if setup_datasets:
-            datasets_cfg: DatasetsCfg = self.root()['datasets']
-            test_datasets = {name: DataLoader(cfg.dataset(),
-                                              pin_memory=True,
-                                              batch_size=6, num_workers=6)
-                             for name, cfg in datasets_cfg.items()}
-            tester.test_dataloaders = list(test_datasets.values())
-            tester.test_dataloaders_names = list(test_datasets.keys())
+        return tester
 
     def log_best_ckpt_metrics(self):
         best_metric = {'best-'+k: v.checkpoint.best_model_score for k, v in self.checkpoints.items()}

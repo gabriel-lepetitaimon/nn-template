@@ -203,14 +203,14 @@ class CfgDict(dict):
         roots = self.roots(max_level=max_level)
         return roots[-1] if roots else self
 
-    def path(self) -> tuple[str] | tuple[()]:
+    def cfg_path(self) -> tuple[str] | tuple[()]:
         return tuple(_.name for _ in reversed(self.roots()[:-1]) if _.name)
 
     @property
     def fullname(self):
         if self._parent is None:
             return None
-        path = self.path()
+        path = self.cfg_path()
         if self.name:
             path = path + (self.name,)
         return '.'.join(path)
@@ -582,7 +582,7 @@ class CfgCollection(CfgDict):
     def init_after_populate(self):
         self._init_after_populate()
         for obj in self.values():
-            from .cfg_object import ObjCfg
+            from .cfg_object import CfgObj
             if getattr(obj, 'init_after_populate', None) is not None:
                 obj.init_after_populate()
 

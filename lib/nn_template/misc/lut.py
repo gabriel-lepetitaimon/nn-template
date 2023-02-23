@@ -1,5 +1,5 @@
 
-def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=None, keep_dims=True):
+def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=None, keep_dims=True, bgr=True):
     assert isinstance(lut_map, dict) and len(lut_map)
 
     import numpy as np
@@ -18,7 +18,7 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
     for source, dest in lut_map.items():
         if source != 'default':
             if isinstance(source, str):
-                source = str2color(source, uint8=str(source_dtype) == 'uint8')
+                source = str2color(source, bgr=bgr, uint8=str(source_dtype) == 'uint8')
             source = np.array(source)
             if source.ndim == 0:
                 source = source.reshape((1,))
@@ -30,7 +30,7 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
             source_list.append(source)
 
         if isinstance(dest, str):
-            dest = str2color(dest, uint8=str(source_dtype) == 'uint8')
+            dest = str2color(dest, bgr=bgr, uint8=str(source_dtype) == 'uint8')
         dest = np.array(dest)
         if dest.ndim == 0:
             dest = dest.reshape((1,))
@@ -39,7 +39,7 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
         elif dest_shape != dest.shape:
             raise ValueError('Invalid destination values: %s (shape should be %s)' % (repr(source), dest_shape))
 
-        if source != 'default':
+        if not isinstance(source, str) or source != 'default':
             dest_list.append(dest)
         else:
             default = dest

@@ -1,1 +1,1 @@
-from .smp import SMPModel
+from .smp import SMPModelCfg

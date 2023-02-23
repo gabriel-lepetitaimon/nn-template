@@ -1,43 +1,47 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import Union, Tuple
 
 
-def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0, broadcastable=False):
-    H, W = tensor.shape[-2:]
+def clip_pad_center(img, shape, center=(0.5, 0.5), pad_mode='constant', pad_value=0, broadcastable=False):
+    H, W = img.shape[-2:]
     h, w = shape[-2:]
+    y, x = (int(round((c % 1)*s)) if isinstance(c, float) and -1 <= c <= 1 else c
+            for c, s in zip(center, (H, W)))
+
     if H == 1 and broadcastable:
-        y0 = 0
         y1 = 0
-        h = 1
-        yodd = 0
+        y2 = 1
+        pad_y1 = 0
+        pad_y2 = 0
     else:
-        y0 = (H-h)//2
-        y1 = 0
-        yodd = 0
-        if y0 < 0:
-            y1 = -y0
-            y0 = 0
-            yodd = (h-H) % 2
+        y1, pad_y1 = y-h//2, 0
+        if y1 < 0:
+            pad_y1, y1 = -y1, 0
+        y2 = min(y1+h, H)
+        pad_y2 = h-(y2-y1)-pad_y1
 
     if W == 1 and broadcastable:
-        x0 = 0
         x1 = 0
-        w = 1
-        xodd = 0
+        x2 = 1
+        pad_x1 = 0
+        pad_x2 = 0
     else:
-        x0 = (W-w)//2
-        x1 = 0
-        xodd = 0
-        if x0 < 0:
-            x1 = -x0
-            x0 = 0
-            xodd = (w-W) % 2
+        x1, pad_x1 = x - w // 2, 0
+        if x1 < 0:
+            pad_x1, x1 = -x1, 0
+        x2 = min(x1 + w, W)
+        pad_x2 = w-(x2-x1)-pad_x1
 
-    tensor = tensor[..., y0:y0+h, x0:x0+w]
-    if x1 or y1:
-        tensor = F.pad(tensor, (x1-xodd, x1, y1-yodd, y1), mode=pad_mode, value=pad_value)
-    return tensor
+    img = img[..., y1:y2, x1:x2]
+    if pad_x1 or pad_x2 or pad_y1 or pad_y2:
+        if isinstance(img, torch.Tensor):
+            img = F.pad(img, (pad_y1, pad_y2, pad_x1, pad_x2), mode=pad_mode, value=pad_value)
+        elif isinstance(img, np.ndarray):
+            img = np.pad(img, ((0, 0),)*(img.ndim-2)+((pad_y1, pad_y2), (pad_x1, pad_x2)),
+                         mode=pad_mode, constant_values=pad_value)
+    return img
 
 
 def clip_tensors(t1, t2):
@@ -103,7 +107,7 @@ def select_pixels_by_mask(*tensors, mask):
             if clipped_mask.ndim > t.ndim:
                 clipped_mask.squeeze(1)
             elif clipped_mask.ndim < t.ndim:
-                clipped_mask.unsqueeze(1)
+                clipped_mask = clipped_mask.unsqueeze(1).expand(t.shape)
             selected += [t[clipped_mask]]
     else:
         selected = [t.flatten() for t in tensors]

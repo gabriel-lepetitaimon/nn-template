@@ -6,8 +6,8 @@ import torch.nn.functional as F
 
 
 class Loss(Cfg.Obj):
-    def create(self, **kwargs):
-        ...
+    def create(self):
+        raise NotImplementedError
 
 
 def loss_attr(default=UNDEFINED, nullable=None):

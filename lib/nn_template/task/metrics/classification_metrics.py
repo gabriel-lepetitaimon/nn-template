@@ -1,12 +1,18 @@
 import torchmetrics as tm
 import wandb
-from .metrics_core import Metrics, Cfg, register_metric, pl
+from .metrics_core import Metric, Cfg, register_metric, pl
 
 
-class GenericClassificationMetric(Metrics):
+class GenericClassificationMetric(Metric):
     task = Cfg.oneOf('binary', 'multiclass', default='multiclass')
     ignore_index = Cfg.int(None)
     validate_args = Cfg.bool(True)
+
+    def prepare_data(self, pred, target):
+        if self.task != 'binary':
+            return pred[target > -1], target[target > -1]
+        else:
+            return pred, target
 
     def common_kwargs(self):
         return {}
@@ -14,7 +20,7 @@ class GenericClassificationMetric(Metrics):
     def create(self, num_classes):
         metric, args = self._create()
         if num_classes == 'binary':
-            self.task = 'binary'
+            self['task'] = 'binary'
             num_classes = None
         generic_args = {'task': self.task,
                         'ignore_index': self.ignore_index,
@@ -35,11 +41,13 @@ class AveragableClassificationMetric(GenericClassificationMetric):
 class MultilabelClassificationMetric(AveragableClassificationMetric):
     task = Cfg.oneOf('binary', 'multiclass', 'multilabel', default='multiclass')
     num_labels = Cfg.int(None)
-    top_k = Cfg.int(1)
+    top_k = Cfg.int(min=1, default=None)
 
     def common_kwargs(self):
-        return super().common_kwargs() | \
-            {'num_labels': self.num_labels, 'top_k': self.top_k}
+        kwargs = {'num_labels': self.num_labels}
+        if self.top_k:
+            kwargs['top_k'] = self.top_k
+        return super().common_kwargs() | kwargs
 
 
 # -------------------------------------------------------------------------------------------------------
@@ -79,7 +87,7 @@ class ConfusionMatrix(AveragableClassificationMetric):
     def _create(self):
         return tm.ConfusionMatrix, {'threshold': self.threshold, 'normalize': self.normalize}
 
-    def log(self, trainer: pl.LightningModule, name: str, metric: tm.Metric):
+    def log(self, module: pl.LightningModule, name: str, metric: tm.Metric):
         from torchmetrics.classification.confusion_matrix import BinaryConfusionMatrix
         n_classes = 2 if isinstance(metric, BinaryConfusionMatrix) else metric.num_classes
 
@@ -101,7 +109,7 @@ class ConfusionMatrix(AveragableClassificationMetric):
                 "nPredictions": "nPredictions",
             },
         )
-        wandb.log(name, confmat)
+        wandb.log({name: confmat})
 
 
 @register_metric('dice', 'classification')

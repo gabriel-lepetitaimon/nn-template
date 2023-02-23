@@ -163,7 +163,7 @@ class CfgParser:
                 parent_node = cfg_dict
 
             rel_root, rel_path = parent_node.abs_path(ref)
-            abs_path = rel_root.path() + rel_path
+            abs_path = rel_root.cfg_path() + rel_path
             if abs_path in resolved:
                 return resolved[abs_path]
             if abs_path in investigated:
@@ -238,13 +238,13 @@ class CfgParser:
 
         for path in _registered_cfg_object.keys():
             if path in cfg_dict:
-                from .cfg_object import ObjCfg, CfgCollection
+                from .cfg_object import CfgObj, CfgCollection
                 obj = cfg_dict[path]
-                if isinstance(obj, ObjCfg):
+                if isinstance(obj, CfgObj):
                     obj.check_integrity(True)
                 elif isinstance(obj, CfgCollection):
                     for item in obj.values():
-                        if isinstance(item, ObjCfg):
+                        if isinstance(item, CfgObj):
                             item.check_integrity(True)
 
         for path in _registered_cfg_object.keys():
@@ -298,8 +298,8 @@ class CfgFile:
         seq_versions = CfgFile.parse_sequence_versions(base)
         for v in versions:
             for c in v.walk_cursor():
-                if c.path in seq_versions.keys() or c.path in base:
-                    raise ParseError(f'Attribute {c.path} is already defined', c.mark)
+                if c.cfg_path in seq_versions.keys() or c.cfg_path in base:
+                    raise ParseError(f'Attribute {c.cfg_path} is already defined', c.mark)
         versions, self.base = curate_versions_base(versions, base)
 
         self.versions = [[CfgDict({k: _}) for _ in l] for k, l in seq_versions.items()]
@@ -367,12 +367,12 @@ def curate_versions_base(versions, base):
     simplest_version = versions[simplest_id]
     other_versions = versions[:simplest_id]+versions[simplest_id+1:]
     for cursor in simplest_version.walk_cursor():
-        if all(cursor.value == version.get(cursor.path, default=UNDEFINED)
+        if all(cursor.value == version.get(cursor.cfg_path, default=UNDEFINED)
                for version in other_versions):
-            base[cursor.path] = cursor.value
+            base[cursor.cfg_path] = cursor.value
             cursor.delete(remove_empty_roots=True)
             for version in other_versions:
-                version.delete(cursor.path, remove_empty_roots=True)
+                version.delete(cursor.cfg_path, remove_empty_roots=True)
 
     return simplified_versions, base
 

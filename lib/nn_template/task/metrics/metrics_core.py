@@ -6,17 +6,21 @@ from ...config import Cfg
 from ...config.cfg_dict import UNDEFINED
 
 
-class Metrics(Cfg.Obj):
+class Metric(Cfg.Obj):
     metric_type = "metric"
+    metric_name = "METRIC_NAME"
+
+    def prepare_data(self, *args):
+        return args
 
     def create(self, **kwargs):
         pass
 
-    def log(self, trainer: pl.LightningModule, name: str, metric: tm.Metric):
-        trainer.log(name, metric, add_dataloader_idx=False, enable_graph=False)
+    def log(self, module: pl.LightningModule, name: str, metric: tm.Metric):
+        module.log(name, metric, add_dataloader_idx=False, enable_graph=False)
 
 
-_METRICS: Dict[str, Metrics] = {}
+_METRICS: Dict[str, Metric] = {}
 
 
 def _metrics_by_type(metric_type):
@@ -40,8 +44,9 @@ def metrics_attr(default=UNDEFINED, metric_type: Iterable[str] | str = None):
 
 
 def register_metric(name: str, metric_type: str = 'metric'):
-    def register(f_metric: Metrics):
+    def register(f_metric: Metric):
         f_metric.metric_type = metric_type
+        f_metric.metric_name = name
         _METRICS[name] = f_metric
         return f_metric
 
