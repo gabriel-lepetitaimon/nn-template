@@ -85,17 +85,18 @@ datasets:
         images:
             x: raw
         labels:
-            y: gt > 1
-            mask: gt > 0
+            y: gt*1
+        masks:
+            mask: mask
 
     train:
         source:
             DRIVE-train-val:
               range: ':-3'
-            
+
         augment:
             augmentation: default
-            factor: 2
+            factor: 4
 
     validate:
         source:
@@ -116,27 +117,31 @@ datasets:
                   raw:
                     type: Image
                     directory: '0-images'
-                    path: '{ID:n}_training.png'
-                    # resize: 1500
+                    path: '{ID:n}_training.tif'
+                    clip-pad: (608, 576)
+
                   gt:
-                    type: Label2D
-                    directory: '2-label_AV'
-                    labelize:
-                        1: r + g > 125
-                        2: b > 125
-                    $: ..raw
+                    type: Mask2D
+                    directory: '1-label_V'
+                    path: '{ID:n}_manual1.png'
+                    clip-pad: (608, 576)
+
                   mask:
                     type: Mask2D
-                    path: 'mask.png'
+                    directory: 'mask'
+                    path: '{ID:n}_training_mask.png'
+                    clip-pad: (608, 576)
+
 
         DRIVE-test:
               $: ..DRIVE-train-val
               dir-prefix: '/home/gaby/These/Data/Fundus/Vessels/DRIVE/test/original/'
               data:
                   raw.path: '{ID:n}_test.tif'
-                  gt.path: '{ID:n}_test.png'
-                  mask:
-                    path: 'mask/{ID:n}_test_mask.gif'
+                  gt:
+                    directory: '2-label_Vessel_1st'
+                    path: '{ID:n}_manual1.png'
+                  mask.path: '{ID:n}_test_mask.png'
 
 ###########################################################
 #              ---   DATA-AUGMENTATIONS   ---             #
@@ -166,6 +171,6 @@ hardware:
     gpus: 1,
     precision: 16     # Training precision. ['64', '32', 'bf16', '16']
     cudnn-benchmark: False
-    num-worker: 0
+    num-workers: 5
     minibatch-splits: 2
 
