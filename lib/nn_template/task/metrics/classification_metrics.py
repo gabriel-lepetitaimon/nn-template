@@ -1,6 +1,7 @@
 import torchmetrics as tm
 import wandb
 from .metrics_core import Metric, Cfg, register_metric, pl
+from ...misc.clip_pad import select_pixels_by_mask
 
 
 class GenericClassificationMetric(Metric):
@@ -8,9 +9,10 @@ class GenericClassificationMetric(Metric):
     ignore_index = Cfg.int(None)
     validate_args = Cfg.bool(True)
 
-    def prepare_data(self, pred, target):
-        if self.task != 'binary':
-            return pred[target > -1], target[target > -1]
+    def prepare_data(self, pred, target, mask=None):
+        if mask is not None:
+            pred, target = select_pixels_by_mask(pred, target, mask=mask)
+            return pred, target
         else:
             return pred, target
 
@@ -82,7 +84,6 @@ class ConfusionMatrix(AveragableClassificationMetric):
     average = None
     threshold = Cfg.float(0.5)
     normalize = Cfg.oneOf('true', 'pred', 'all', default=None)
-    class_names = Cfg.strList(None)
 
     def _create(self):
         return tm.ConfusionMatrix, {'threshold': self.threshold, 'normalize': self.normalize}
@@ -91,7 +92,8 @@ class ConfusionMatrix(AveragableClassificationMetric):
         from torchmetrics.classification.confusion_matrix import BinaryConfusionMatrix
         n_classes = 2 if isinstance(metric, BinaryConfusionMatrix) else metric.num_classes
 
-        class_names = self.class_names
+        task = self.root()['task']
+        class_names = getattr(task, 'classes', None)
         if class_names is None or len(class_names) != n_classes:
             class_names = [f"Class {i}" for i in range(n_classes)]
 

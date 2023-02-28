@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 from .metrics import metrics_attr
 from .. import Cfg
 from ..datasets import DatasetsCfg
-from .losses import Loss, loss_attr
+from .losses import LossCfg, loss_attr
 from .optimizer import OptimizerCfg
 
 

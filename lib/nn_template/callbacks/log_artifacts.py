@@ -27,7 +27,7 @@ class Export2DLabel(Callback):
 
     def format_batch(self, batch):
         y = (batch['y'] != 0).float()
-        y_pred = batch['pred']
+        y_pred = batch['y_pred']
         if y_pred.dtype == torch.float:
             y_pred = y_pred > 0.5
 

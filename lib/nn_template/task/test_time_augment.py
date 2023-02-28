@@ -43,6 +43,15 @@ class TestTimeAugmentCfg(Cfg.Obj):
             raise error
         return rot90
 
+    @alias.post_checker
+    def check_alias(self, alias):
+        import ttach as tta
+        if not hasattr(tta.aliases, alias):
+            if not alias.endswith('_transform') and hasattr(tta.aliases, alias+'_transform'):
+                return alias+'_transform'
+            else:
+                raise Cfg.InvalidAttr(f'Invalid test time augmentation alias "{alias}"')
+
     @cached_property
     def transforms(self):
         import ttach as tta

@@ -97,6 +97,14 @@ def cat_crop(x1, x2):
 
 
 def select_pixels_by_mask(*tensors, mask):
+    """
+    Select pixels according to mask.
+    :param tensors: Tensors of shape either:
+        • [B, H, W] : then the returned tensors is vector of shape [M] (M being the count of non-zero element of mask)
+        • [B, C, H, W] : then the shape of the returned tensors is [M, C]
+    :param mask: a boolean matrix of shape [B, H, W]
+    :return:
+    """
     if mask is not None:
         mask = mask.to(torch.bool)
         clipped_mask = None
@@ -104,11 +112,19 @@ def select_pixels_by_mask(*tensors, mask):
         for t in tensors:
             if clipped_mask is None or t.shape[-2:] != clipped_mask.shape:
                 clipped_mask = clip_pad_center(mask, t.shape)
-            if clipped_mask.ndim > t.ndim:
-                clipped_mask.squeeze(1)
-            elif clipped_mask.ndim < t.ndim:
-                clipped_mask = clipped_mask.unsqueeze(1).expand(t.shape)
-            selected += [t[clipped_mask]]
+
+            if clipped_mask.ndim < t.ndim and t.shape[1] != 1:
+                c = t.shape[1]
+                t = torch.movedim(t, 1, 0).flatten(1)
+                clipped_mask = clipped_mask.flatten().unsqueeze(0).expand(t.shape)
+                masked_t = t.flatten()[clipped_mask.flatten()].reshape((c, -1))
+                selected += [masked_t.T]
+            else:
+                if clipped_mask.ndim > t.ndim:
+                    clipped_mask = clipped_mask.squeeze(1)
+                elif clipped_mask.ndim < t.ndim:
+                    t = t.unsqueeze(1)
+                selected += [t[clipped_mask]]
     else:
         selected = [t.flatten() for t in tensors]
     return selected

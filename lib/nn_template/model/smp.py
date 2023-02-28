@@ -25,7 +25,7 @@ class SMPModelCfg(Cfg.Obj):
     architecture = Cfg.strMap(ARCHITECTURE)
     encoder_name: str = 'resnet34'
     encoder_depth: int = Cfg.int(min=3, max=5, default=5)
-    encoder_weights: str = 'imagenet'
+    encoder_weights = Cfg.str('imagenet', nullable=True)
     decoder_use_batchnorm = Cfg.oneOf(True, False, 'inplace', default=True)
 
     def create(self, in_channels: int, activation: str = None, opt: Mapping[str, any] = None):

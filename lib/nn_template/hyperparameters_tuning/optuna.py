@@ -269,7 +269,7 @@ class OptunaCfg(Cfg.Obj):
         debug_run = hardware.debug
         def run_trial(trial):
             self._trial = trial
-            self.root()['experiment.run_id'] = trial.number
+            self.root()['experiment.run_id'] = self.valid_trials_count()
             self.engine.suggest(trial)
 
             try:
@@ -360,6 +360,9 @@ class OptunaCfg(Cfg.Obj):
     def clear_trial(self):
         self.engine.clear_suggestion()
         self._trial = None
+
+    def hyper_parameters(self):
+        return Cfg.Dict.from_dict({k: hp.suggested_value for k, hp in self.engine.hyper_parameters.items()})
 
     class IgnoreException(Exception):
         def __init__(self):

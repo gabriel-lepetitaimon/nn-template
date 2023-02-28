@@ -4,6 +4,7 @@ from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
 from collections import abc
 import numpy as np
+import weakref
 
 from .cfg_dict import CfgDict
 from .cfg_object import UNDEFINED, CfgCollectionType, InvalidAttr
@@ -124,7 +125,7 @@ class CfgParser:
         return self
 
     def _parse_files(self):
-        f = CfgFile(self.path).parse()
+        f = CfgFile(self.path, self).parse()
         self.files = [f]
         dependencies = list(f.inherit)
         while dependencies:
@@ -135,7 +136,7 @@ class CfgParser:
                     dependencies += [d]
 
     def _merge_files(self):
-        base = CfgDict()
+        base = CfgDict(mark=Mark(0, 0, self.files[0], self))
         versions = []
 
         for f in reversed(self.files):
@@ -258,11 +259,16 @@ class CfgFile:
     Represent and parse an actual yaml of json file containing configuration information.
     Apart from the file base data, it stores all the versions of this file and links to inherited CfgFiles.
     """
-    def __init__(self, path: str):
+    def __init__(self, path: str, parser: CfgParser):
         self.path = path
         self.base = None
         self.inherit = None
         self.versions = None
+        self._parser = weakref.ref(parser)
+
+    @property
+    def parser(self) -> CfgParser:
+        return self._parser()
 
     def __repr__(self):
         return f"CfgFile(path={self.path})"
@@ -274,7 +280,7 @@ class CfgFile:
         if self.path.endswith('.yaml'):
             yaml_docs = []
             with open(self.path, 'r') as yaml_file:
-                loader = CfgYamlLoader(yaml_file, self)
+                loader = CfgYamlLoader(yaml_file, self, self.parser)
                 try:
                     while loader.check_data():
                         yaml_docs += [loader.get_data()]
@@ -283,7 +289,7 @@ class CfgFile:
             base = CfgDict.from_dict(yaml_docs[0], recursive=True, read_marks=True)
             versions = [CfgDict.from_dict(_, recursive=True, read_marks=True) for _ in yaml_docs[1:]]
             dirname = os.path.dirname(self.path)
-            self.inherit = [CfgFile(os.path.join(dirname, _)) for _ in loader.inherit]
+            self.inherit = [CfgFile(os.path.join(dirname, _), self.parser) for _ in loader.inherit]
 
         elif self.path.endswith('.json'):
             import json
@@ -436,20 +442,25 @@ def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_b
 
 
 class CfgYamlLoader(SafeLoader):
-    def __init__(self, stream: any, file: CfgFile):
+    def __init__(self, stream: any, file: CfgFile, parser: CfgParser):
         super(CfgYamlLoader, self).__init__(stream=stream)
         self.file = file
         self.inherit = []
+        self._parser = weakref.ref(parser)
+
+    @property
+    def parser(self) -> CfgParser:
+        return self._parser()
 
     def construct_mapping(self, node, deep=False):
         mapping = super(CfgYamlLoader, self).construct_mapping(node, deep=deep)
         # Add 1 so line numbering starts at 1
         mark = node.start_mark
-        mapping["__mark__"] = Mark(mark.line, mark.column-1, self.file)
+        mapping["__mark__"] = Mark(mark.line, mark.column-1, self.file, self.parser)
         child_marks = {}
         for k, v in node.value:
             mark = v.start_mark
-            child_marks[k.value] = Mark(mark.line+1, mark.column, self.file)
+            child_marks[k.value] = Mark(mark.line+1, mark.column, self.file, self.parser)
         mapping["__child_marks__"] = child_marks
         return mapping
 
@@ -493,10 +504,11 @@ class CfgYamlLoader(SafeLoader):
 
 
 class Mark:
-    def __init__(self, line: int, col: int, file: CfgFile | str):
+    def __init__(self, line: int, col: int, file: CfgFile | str, parser: CfgParser):
         self.line = line
         self.col = col
-        self.file = file if isinstance(file, CfgFile) else CfgFile(file)
+        self.file = file if isinstance(file, CfgFile) else CfgFile(file, parser)
+        self._parser = weakref.ref(parser)
 
     def __str__(self):
         return f'in "{self.filename}", line {self.line}, column {self.col}'
@@ -505,9 +517,13 @@ class Mark:
         return f'Mark({self.line}, {self.col}, file="{self.filepath}")'
 
     @property
-    def filename(self):
+    def filename(self) -> str:
         return os.path.basename(self.file.path)
 
     @property
-    def filepath(self):
+    def filepath(self) -> str:
         return self.file.path
+
+    @property
+    def parser(self) -> CfgParser:
+        return self._parser()

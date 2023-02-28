@@ -1,12 +1,30 @@
+import torch
+from inspect import signature
+
 from ...config import Cfg
 from ...config.cfg_dict import UNDEFINED
-import torch.nn.functional as F
-
-# TODO: multiple obj_types for one Cfg.obj()
 
 
-class Loss(Cfg.Obj):
-    def create(self):
+class Loss:
+    def __init__(self, cfg, loss_fn):
+        self.loss_fn = loss_fn
+        self.cfg = cfg
+
+    def __call__(self, pred, target, mask=None):
+        return self.loss_fn(pred=pred, target=target, mask=mask)
+
+
+class LossCfg(Cfg.Obj):
+    name = None
+
+    def create(self) -> Loss:
+        loss_fn = self.loss
+        loss_args = signature(loss_fn).parameters
+        if not loss_args:
+            loss_fn = loss_fn()
+        return Loss(self, loss_fn) if not isinstance(loss_fn, Loss) else loss_fn
+
+    def loss(self, **kwargs):
         raise NotImplementedError
 
 
@@ -20,8 +38,10 @@ _LOSSES = {}
 def register_loss(name):
     global _LOSSES
 
-    def register(f_loss):
+    def register(f_loss: LossCfg):
         _LOSSES[name] = f_loss
+        f_loss.name = name
+        return f_loss
 
     return register
 
