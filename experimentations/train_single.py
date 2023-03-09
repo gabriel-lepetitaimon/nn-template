@@ -1,5 +1,5 @@
 import argparse
-import traceback
+import numpy as np
 from nn_template import Cfg
 from nn_template.hyperparameters_tuning.optuna import OptunaCfg
 
@@ -21,24 +21,13 @@ def main():
     if args.debug:
         override_cfg['hardware.debug'] = True
 
-    try:
-        exhaust_runs(args.configuration_file, override_cfg)
-    except KeyboardInterrupt:
-        print('\n'*2)
-        print("====== RUN WAS INTERRUPTED =======")
-        print('\n' * 2, '-'*50, '\n')
-        exit(100)
-    except Exception as e:
-        print('\n'*2)
-        print("========== RUN CRASHED !! ========")
-        traceback.print_exc()
-        print('\n' * 2, '-'*50, '\n')
-        exit(1)
+    exhaust_runs(args.configuration_file, override_cfg)
 
 
 def exhaust_runs(cfg_filepath: str, override_cfg=None):
     parser = Cfg.Parser(cfg_filepath, override=override_cfg).parse()
     for cfg in parser.get_configs():
+
         if 'optuna' in cfg:
             optuna_cfg: OptunaCfg = cfg['optuna']
             optuna_cfg.optimize(run_train, cfg)

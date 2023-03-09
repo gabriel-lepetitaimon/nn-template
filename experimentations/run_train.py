@@ -1,6 +1,7 @@
 import optuna
 
-from nn_template import CfgDict, ExperimentCfg
+from nn_template import CfgDict
+from nn_template.experiment import ExperimentCfg
 from nn_template.datasets import DatasetsCfg
 from nn_template.training import TrainingCfg
 from nn_template.hyperparameters_tuning.optuna import OptunaCfg
@@ -21,6 +22,9 @@ def run_train(cfg: CfgDict):
     model_cfg: SMPModelCfg = cfg['model']
     hardware_cfg: HardwareCfg = cfg['hardware']
 
+    cmap_av = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
+    cmap_vessel = {(0, 0): '#edf6f9', (1, 1): '#83c5be', (1, 0): '#e29578', (0, 1): '#006d77', 'default': 'lightgray'}
+
     # --- Setup logs ---
     with experiment_cfg.wandb.init_logs() as wandb_log:
 
@@ -37,13 +41,14 @@ def run_train(cfg: CfgDict):
         with LogTimer('Setup Models', log=hardware_cfg.debug):
             sample = val_data.dataset[0]
             model = model_cfg.create(sample['x'].shape[0])
-            experiment_cfg.wandb.setup_model_log(model)
+            callbacks = experiment_cfg.wandb.pl_callbacks()
 
         ###################
         # ---  TRAIN  --- #
         # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
         with LogTimer('Setup Trainer', log=hardware_cfg.debug):
-            callbacks = optuna_cfg.pytorch_lightnings_callbacks()
+            callbacks += optuna_cfg.pl_callbacks()
+            callbacks += [Export2DLabel(cmap_vessel, every_n_epoch=10)]
             trainer = training_cfg.create_trainer(callbacks)
             net = task_cfg.create_net(model)
 
@@ -56,8 +61,6 @@ def run_train(cfg: CfgDict):
         # --- TEST --- #
         # ‾‾‾‾‾‾‾‾‾‾‾‾ #
         with LogTimer('Setup Tester', log=hardware_cfg.debug):
-            cmap_av = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
-            cmap_vessel = {(0, 0): '#edf6f9', (1, 1): '#83c5be', (1, 0): '#e29578', (0, 1): '#006d77', 'default': 'lightgray'}
             callbacks = [Export2DLabel(cmap_vessel, dataset_names=net.test_dataloaders_names)]
 
             tester = training_cfg.create_tester(callbacks=callbacks)
