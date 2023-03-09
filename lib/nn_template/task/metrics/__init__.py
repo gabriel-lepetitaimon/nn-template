@@ -1,2 +1,2 @@
-from .metrics_core import metric_attr, metrics_attr, register_metric
+from .metrics_core import *
 from .classification_metrics import *

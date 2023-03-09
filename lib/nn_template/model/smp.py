@@ -28,14 +28,30 @@ class SMPModelCfg(Cfg.Obj):
     encoder_weights = Cfg.str('imagenet', nullable=True)
     decoder_use_batchnorm = Cfg.oneOf(True, False, 'inplace', default=True)
 
-    def create(self, in_channels: int, activation: str = None, opt: Mapping[str, any] = None):
+    def _after_populate(self):
+        try:
+            n_classes = self.root()['task'].n_classes
+        except:
+            raise Cfg.InvalidAttr('Invalid task for SMP Model',
+                                  'SMP models requires n-classes to be defined in task.',
+                                  mark=self.root().get_mark('task'))
+
+        if n_classes == 'binary':
+            raise Cfg.InvalidAttr('Invalid task.n-classes for SMP Model',
+                                  "SMP models don't support formal binary segmentation. Use task.n-classes: 2 instead.",
+                                  mark=self.root().get_mark('task.n-classes'))
+
+    def create(self, in_channels: int, opt: Mapping[str, any] = None):
         Arch = self.architecture
         arch_opts = list(inspect.signature(Arch).parameters.values())
 
         n_classes = self.root()['task'].n_classes
         if n_classes == 'binary':
-            n_classes = 2
-        cfg = dict(in_channels=in_channels, classes=n_classes, activation=activation)
+            raise Cfg.InvalidAttr('Invalid task for SMP Model',
+                                  'SMP models requires n-classes to be defined in task.',
+                                  mark=self.root().get_mark('task'))
+
+        cfg = dict(in_channels=in_channels, classes=n_classes)
 
         attr = self.attr()
         for k, v in self.items():

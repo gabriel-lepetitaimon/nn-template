@@ -9,21 +9,32 @@ from ..misc.clip_pad import clip_pad_center
 
 
 class Export2DLabel(Callback):
-    def __init__(self, color_map, dataset_names, on_validation=False, on_test=True):
+    def __init__(self, color_map, dataset_names: list[str] | None = None, every_n_epoch=False, on_test=True):
         super(Export2DLabel, self).__init__()
 
         self.color_lut = prepare_lut(color_map, bgr=False, source_dtype=int)
         self.dataset_names = dataset_names
-        self.on_validation = on_validation
+        self.every_n_epoch = every_n_epoch
         self.on_test = on_test
+        self._last_epoch = -100
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        if self.on_validation:
-            self.export_batch(batch, batch_idx, dataloader_idx, prefix='val')
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=None):
+        if self.every_n_epoch and pl_module.current_epoch-self._last_epoch >= self.every_n_epoch:
+            self._last_epoch = pl_module.current_epoch
+
+            try:
+                dataloader_name = self.dataset_names[dataloader_idx]
+            except:
+                dataloader_name = f'val-{dataloader_idx}' if dataloader_idx is not None else 'val'
+            self.export_batch(batch, batch_idx, dataloader_name)
 
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         if self.on_test:
-            self.export_batch(batch, batch_idx, dataloader_idx, prefix='test')
+            try:
+                dataloader_name = self.dataset_names[dataloader_idx]
+            except:
+                dataloader_name = f'test-{dataloader_idx}' if dataloader_idx is not None else 'test'
+            self.export_batch(batch, batch_idx, dataloader_name)
 
     def format_batch(self, batch):
         y = (batch['y'] != 0).float()
@@ -42,16 +53,13 @@ class Export2DLabel(Callback):
 
         return [self.color_lut(img).transpose(1, 2, 0) for img in diff]
 
-    def export_batch(self, batch, batch_idx, dataloader_name, prefix):
+    def export_batch(self, batch, batch_idx, dataloader_name):
         if batch_idx:
             return
 
-        if dataloader_name:
-            dataloader_name += '-'
-
         imgs = self.format_batch(batch)
         img = make_grid([img for img in imgs], nrow=2)
-        wandb.log({f'{prefix}-{dataloader_name}': wandb.Image(img,)})
+        wandb.log({dataloader_name: wandb.Image(img,)})
 
 
 def make_grid(imgs: list[np.ndarray], nrow=1, padding=5, resize='max') -> np.ndarray:

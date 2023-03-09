@@ -1,30 +1,36 @@
-import traceback
-
-import torch
-from torch import nn
+__all__ = ['Segmentation2DCfg', 'Segmentation2D']
 
 from copy import copy
-from .task import Cfg, LightningTask, LightningTaskCfg, LossCfg, loss_attr, OptimizerCfg
+import traceback
+import torch
+import wandb
+from pytorch_lightning.utilities.types import LRSchedulerTypeUnion
+from torch import nn
+
+
+from ..misc.function_tools import match_params
+from .task import Cfg, LightningTask, LightningTaskCfg, LossCfg, loss_attr, OptimizerCfg, SchedulerCfg, scheduler
 from .test_time_augment import TestTimeAugmentCfg
 from ..misc.clip_pad import clip_pad_center, select_pixels_by_mask
 from ..datasets import DatasetsCfg
-from .metrics import Metric
+from .metrics import MetricCfg
 
 
 @Cfg.register_obj("task", type='Segmentation2D')
 class Segmentation2DCfg(LightningTaskCfg):
-    classes = Cfg.strList(None)
+    classes = Cfg.strList()
     n_classes = Cfg.oneOf(Cfg.int(min=1), 'binary', 'auto', default='auto')
     direction = Cfg.oneOf('max', 'min', default='max')
 
     loss: LossCfg = loss_attr(default='cross-entropy')
     optimizer: OptimizerCfg = Cfg.obj(default='Adam', shortcut='type')
+    scheduler: SchedulerCfg = scheduler()
     test_time_augment: TestTimeAugmentCfg = Cfg.obj(default=None, shortcut='alias')
 
     @LightningTaskCfg.metrics.post_checker
     def check_metrics(self, value):
         for metric in value.values():
-            metric: Metric
+            metric: MetricCfg
             if self['n-classes'] != 'binary':
                 match metric.metric_name:
                     case 'auroc':
@@ -33,29 +39,46 @@ class Segmentation2DCfg(LightningTaskCfg):
 
         return value
 
+    @classes.post_checker
+    def check_classes(self, value):
+        n_value = len(value)
+        n_classes = self.get('n-classes', 'auto')
+        if n_classes == 'auto':
+            if n_value == 1:
+                self['n-classes'] = 'binary'
+                return ['background'] + value
+            else:
+                self['n-classes'] = n_value
+                return n_value
+        elif n_classes == 'binary':
+            if n_value == 1:
+                return ['background'] + value
+            elif n_value != 2:
+                raise Cfg.InvalidAttr(f"Invalid number of classes names for binary classification",
+                                      f'Either change "classes" to a list of one or two names, or set n-classes: {n_value}.')
+        elif n_classes == n_value+1:
+            return ['background'] + value
+        elif n_classes != n_value:
+            raise Cfg.InvalidAttr(f"Invalid number of classes names for {n_classes}-fold classification",
+                                  f'Either change "classes" to a list of {n_classes} names, or set n-classes: {n_value}')
+        return value
+
     @n_classes.post_checker
     def check_n_classes(self, value):
-        n_classes = len(self.classes) if self.classes is not None else None
-        if value == 'auto':
-            if n_classes is None:
-                raise Cfg.InvalidAttr('Either n-classes or classes should be defined in the task configuration')
-            if n_classes == 1:
-                self['classes'] = ['background'] + self.classes
-                return 'binary'
-            else:
-                return n_classes
-        elif value == 'binary':
-            if n_classes == 1:
-                self['classes'] = ['background'] + self.classes
-            elif n_classes != 2:
-                raise Cfg.InvalidAttr(f"Invalid number of classes names (classes={self.classes}) for binary classification",
-                                      f'Either change "classes" to a list of one or two names, or set n-classes: {n_classes}')
-        elif value == n_classes+1:
-            self['classes'] = ['background'] + self.classes
-        elif value != n_classes:
-            raise Cfg.InvalidAttr(f"Invalid number of classes names (classes={self.classes}) for {value}-fold classification",
-                                  f'Either change "classes" to a list of {value} names, or set n-classes: {n_classes}')
-        return value
+        try:
+            n_classes = len(self.classes)
+        except AttributeError:
+            return value
+        match value:
+            case 'binary':
+                if n_classes in (1, 2):
+                    return value
+            case 'auto': return value
+            case int():
+                if n_classes in (value, value+1):
+                    return value
+        raise Cfg.InvalidAttr(f"Invalid number of classes names for {value}-fold classification",
+                              f'Either change "classes" to a list of {value} names, or set n-classes: {n_classes}')
 
     def create_net(self, model: nn.Module):
         return Segmentation2D(self, model=model)
@@ -68,6 +91,9 @@ class Segmentation2D(LightningTask):
         self.cfg = cfg
         self.model = model
         self.loss = self.cfg.loss.create()
+        self.auxilary_loss = model.create_auxilary_losses() if hasattr(model, 'create_auxilary_losses') else None
+
+
         self.metrics_cfg = {f"{dataset}-{metric_name}": metric
                             for dataset in ('val',) + self.test_dataloaders_names
                             for metric_name, metric in self.cfg.metrics.items()}
@@ -95,7 +121,16 @@ class Segmentation2D(LightningTask):
         return self.apply_logits(proba)
 
     def configure_optimizers(self):
-        return self.cfg.optimizer.create(self.parameters())
+        optim = self.cfg.optimizer.create(self.parameters())
+        scheduler = self.cfg.scheduler.create(optim) if self.cfg.scheduler else None
+        if scheduler:
+            return [optim], [scheduler]
+        else:
+            return optim
+
+    def lr_scheduler_step(self, scheduler: LRSchedulerTypeUnion, optimizer_idx: int, metric) -> None:
+        match_params(scheduler.step, metrics=metric, epoch=self.current_epoch, step=self.global_step)
+        wandb.log({'lr': scheduler.optimizer.param_groups[0]['lr']})
 
     def compute_pred_target_loss(self, batch, test_time_augment=False):
         x, target = batch['x'], batch['y']
@@ -125,6 +160,8 @@ class Segmentation2D(LightningTask):
             proba = self.apply_logits(proba)
 
         loss = self.loss(proba, target, mask)
+        if self.auxilary_loss:
+            loss += self.auxilary_loss(proba, target, mask)
 
         proba = proba.detach()
         if logits_in_loss:

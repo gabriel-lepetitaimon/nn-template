@@ -1,7 +1,6 @@
 from __future__ import annotations
-from functools import reduce
-from typing import Mapping, Dict, List
-from collections.abc import Iterable
+from typing import Mapping, Dict, List, TypeVar, Generic, Iterable
+import os
 import weakref
 
 
@@ -47,25 +46,25 @@ def recursive_dict_map(dictionnary, function):
 
 
 class CursorCfgDict:
-    def __init__(self, cfg_dict, path: [str]):
+    def __init__(self, cfg_dict, cfg_path: [str]):
         self._cfg_dict = cfg_dict
-        self.path = path
+        self.cfg_path = cfg_path
         self.direction = 'continue'
 
     @property
     def parent(self) -> CfgDict:
-        return self._cfg_dict[self.path[:-1]]
+        return self._cfg_dict[self.cfg_path[:-1]]
 
     @property
     def value(self):
-        return self._cfg_dict[self.path]
+        return self._cfg_dict[self.cfg_path]
 
     @value.setter
     def value(self, v):
-        self._cfg_dict[self.path] = v
+        self._cfg_dict[self.cfg_path] = v
 
     def delete(self, remove_empty_roots=False):
-        self._cfg_dict.delete(self.path, remove_empty_roots=remove_empty_roots)
+        self._cfg_dict.delete(self.cfg_path, remove_empty_roots=remove_empty_roots)
         if remove_empty_roots:
             self.up()
         else:
@@ -74,21 +73,21 @@ class CursorCfgDict:
     @property
     def mark(self):
         try:
-            return self._cfg_dict.get_mark(self.path)
+            return self._cfg_dict.get_mark(self.cfg_path)
         except KeyError:
             return ""
 
     @property
     def name(self):
-        return self.path[-1]
+        return self.cfg_path[-1]
 
     @property
     def parent_fullname(self):
-        return '.'.join(self.path[:-1])
+        return '.'.join(self.cfg_path[:-1])
 
     @property
     def fullname(self):
-        return '.'.join(self.path)
+        return '.'.join(self.cfg_path)
 
     def out(self):
         self.direction = 'out'
@@ -326,6 +325,21 @@ class CfgDict(dict):
             return root.mark
         return root[path[:-1]].child_mark.get(path[-1], None)
 
+    def set_mark(self, path, mark):
+        if mark is None:
+            return
+
+        m = self.get_mark(path)
+        if m is not None:
+            m.update(mark)
+            return
+
+        root, path = self.abs_path(path)
+        if len(path) == 0:
+            root.mark = mark
+        else:
+            root[path[:-1]].child_mark[path[-1]] = mark
+
     def __setitem__(self, key: str, value):
         if key == '__mark__':
             self.mark = value
@@ -412,18 +426,22 @@ class CfgDict(dict):
             return False
         return True
 
-    def pop(self, path, remove_empty_roots=False):
+    def pop(self, path, remove_empty_roots=False, with_mark=False):
         root, path = self.abs_path(path, check_exists=True)
-        r = reduce(lambda d, p: d[p], path[:-1], self)
-        v = r[path[-1]]
-        del r[path[-1]]
+        # r = reduce(lambda d, p: d[p], path[:-1], self)
+        v = root[path[-1]]
+        if with_mark:
+            mark = v.child_mark.get(path[-1], None)
+        del root[path[-1]]
+
         if remove_empty_roots:
             path = list(path)
             while path and len(r) == 0:
                 name = path.pop()
                 r = r.parent
                 del r[name]
-        return v
+
+        return (v, mark) if with_mark else v
 
     def delete(self, path, remove_empty_roots=False):
         if isinstance(path, (list, tuple)):
@@ -446,6 +464,11 @@ class CfgDict(dict):
 
         if isinstance(__m, CfgDict):
             self.child_mark.update(__m.child_mark)
+            if __m.mark:
+                if self.mark:
+                    self.mark.update(__m.mark)
+                else:
+                    self.mark = __m.mark
         for k, v in __m.items():
             if isinstance(v, Mapping) and not isinstance(v, CfgDict):
                 v = CfgDict.from_dict(v, recursive=True)
@@ -484,15 +507,15 @@ class CfgDict(dict):
                     self[k] = r
         return self
 
-    def walk(self):
-        for cursor in self._walk_cursor():
+    def walk(self, only_leaf=False):
+        for cursor in self._walk_cursor(only_leaf=only_leaf):
             yield cursor.fullname
 
-    def walk_cursor(self) -> Iterable[CursorCfgDict]:
-        for cursor in self._walk_cursor():
+    def walk_cursor(self, only_leaf=False) -> Iterable[CursorCfgDict]:
+        for cursor in self._walk_cursor(only_leaf=only_leaf):
             yield cursor
 
-    def _walk_cursor(self, rootpath=(), root_cfg=None) -> Iterable[CursorCfgDict]:
+    def _walk_cursor(self, rootpath=(), root_cfg=None, only_leaf=False) -> Iterable[CursorCfgDict]:
         if root_cfg is None:
             root_cfg = self
         for item in list(self.keys()):
@@ -502,8 +525,9 @@ class CfgDict(dict):
             item_path = rootpath+(item,)
             if isinstance(value, CfgDict):
                 for cursor in value._walk_cursor(rootpath=item_path, root_cfg=root_cfg):
-                    yield cursor
-                    if cursor.direction != 'continue' and cursor.path[:-1] == rootpath:
+                    if not only_leaf:
+                        yield cursor
+                    if cursor.direction != 'continue' and cursor.cfg_path[:-1] == rootpath:
                         if cursor.direction == 'up':
                             return
                         elif cursor.direction == 'out':
@@ -547,6 +571,18 @@ class CfgDict(dict):
         if isinstance(value, tuple) and not isinstance(item, tuple):
             return item in value
         return item == value
+
+    def current_versions(self) -> list[CfgVersion]:
+        versions = []
+        for c in self.walk_cursor(only_leaf=True):
+            if c.mark:
+                version = c.mark.version
+                if version is not None and all(v is not versions for v in versions):
+                    versions.append(version)
+        return versions
+
+
+T = TypeVar('T')
 
 
 class CfgCollection(CfgDict):
@@ -642,15 +678,15 @@ class CfgCollectionRef:
         return self.collection[self.key]
 
 
-class CfgList(CfgCollection):
+class CfgList(CfgCollection, Generic[T]):
     def __init__(self, obj_types, id_key: str, type_key: str=None, data=None, parent=None):
         self.id_key = id_key
         super(CfgList, self).__init__(obj_types=obj_types, type_key=type_key, data=data, parent=parent)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterable[T]:
         return iter(self.values())
 
-    def list(self):
+    def list(self) -> List[T]:
         return list(self)
 
     def __setitem__(self, key, value):
@@ -666,3 +702,65 @@ class CfgList(CfgCollection):
             if mark is not None:
                 value.child_mark[self.id_key] = mark
         super(CfgList, self).__setitem__(key, value)
+
+
+class CfgVersion:
+    versions: list[CfgDict]
+    version_id: int
+
+    def __init__(self, version_id, versions):
+        self.versions = versions
+        self.version_id = version_id
+
+    @property
+    def current(self):
+        return self.versions[self.version_id]
+
+
+class Mark:
+    def __init__(self, field_id: str, line: int, col: int, file, parser, version=None):
+        from .cfg_parser import CfgFile
+
+        self.field_id = field_id
+        self.line = line
+        self.col = col
+        self.file = file if isinstance(file, CfgFile) else CfgFile(file, parser)
+        self.version = version
+        self._parser = weakref.ref(parser)
+
+    def update(self, other_mark):
+        self.field_id = other_mark.field_id
+        self.line = other_mark.line
+        self.col = other_mark.col
+        self.file = other_mark.file
+        self.version = other_mark.version
+        self._parser = other_mark._parser
+
+    def __str__(self):
+        return f'in "{self.filename}", line {self.line}, column {self.col}'
+
+    def __repr__(self):
+        return f'Mark({self.line}, {self.col}, file="{self.filepath}")'
+
+    @property
+    def filename(self) -> str:
+        return os.path.basename(self.file.path)
+
+    @property
+    def filepath(self) -> str:
+        return self.file.path
+
+    @property
+    def fullpath(self) -> str:
+        return os.path.abspath(self.file.path)
+
+    @property
+    def parser(self):
+        return self._parser()
+
+    def exception_like_description(self):
+        exp_str = f'File "{self.fullpath}", line {self.line}'
+        if self.field_id:
+            return exp_str+f', in {self.field_id}'
+        else:
+            return exp_str

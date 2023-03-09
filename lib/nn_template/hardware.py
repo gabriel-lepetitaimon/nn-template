@@ -1,5 +1,5 @@
 import os
-from nn_template import Cfg
+from . import Cfg
 
 
 @Cfg.register_obj("hardware")

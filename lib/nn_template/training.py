@@ -2,32 +2,15 @@ from functools import cached_property
 import math
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from torch.utils.data import DataLoader
 import wandb
 
 from . import Cfg
-
-from .task import LightningTaskCfg
+from .task import MonitoredMetricCfg, check_metric_name
 from .hardware import HardwareCfg
 from .datasets import DatasetsCfg
 from .experiment import ExperimentCfg
 
 
-class MonitoredMetricCfg(Cfg.Obj):
-    metric = Cfg.str()
-    mode = Cfg.oneOf('min', 'max', default='max')
-
-    @metric.post_checker
-    def check_metric(self, metric):
-        if metric.endswith('^'):
-            metric = metric[:-1].strip()
-            self['mode'] = 'min'
-        check_metric_name(self, metric, 'checkpoint')
-        if not metric.startswith(('val', 'train')):
-            raise Cfg.InvalidAttr(f'Invalid metric: "{metric}"',
-                                  'Monitored metrics during training must be computed on '
-                                  'the validation or training datasets.')
-        return metric
 
 
 class CheckpointCfg(MonitoredMetricCfg):
@@ -57,14 +40,13 @@ class TrainingCfg(Cfg.Obj):
     max_epoch = Cfg.int()
     minibatch = Cfg.int(None)
     gradient_clip = Cfg.int(0)
+    gradient_clip_algorithm = Cfg.oneOf('value', 'norm', default='norm')
 
     seed = Cfg.int(1234)
 
-    checkpoints = Cfg.obj_list(main_key='metric', obj_types=CheckpointCfg)
+    checkpoints: Cfg.List[CheckpointCfg] = Cfg.obj_list(main_key='metric', obj_types=CheckpointCfg)
     validate_every_n_epoch = Cfg.int(min=0)
-    objective = Cfg.str('val-acc')
-    monitor = Cfg.strList(default=None)
-    direction = Cfg.oneOf('max', 'min', default='max')
+    objective = Cfg.str('val-loss')
 
     def _init_after_populate(self):
         self.check_objective(self.objective)
@@ -117,11 +99,13 @@ class TrainingCfg(Cfg.Obj):
 
         max_epoch = 2 if hardware.debug else self.max_epoch
         check_val_every_n_epoch = 1 if hardware.debug else self.validate_every_n_epoch
+        is_first_trial = experiment.trial_id is None or experiment.trial_id <= 1
 
-        kwargs = dict(callbacks=callbacks, num_sanity_val_steps=2 if experiment.run_id <= 1 else 0,
+        kwargs = dict(callbacks=callbacks, num_sanity_val_steps=2 if is_first_trial else 0,
                       max_epochs=max_epoch, check_val_every_n_epoch=check_val_every_n_epoch,
                       log_every_n_steps=min(50, (datasets.train.sample_count()/self.minibatch_size)//3),
-                      accumulate_grad_batches=hardware.minibatch_splits, gradient_clip_val=self.gradient_clip)
+                      accumulate_grad_batches=hardware.minibatch_splits,
+                      gradient_clip_val=self.gradient_clip, gradient_clip_algorithm=self.gradient_clip_algorithm,)
         if hardware.precision:
             kwargs['precision'] = hardware.precision
 
@@ -153,20 +137,3 @@ class TrainingCfg(Cfg.Obj):
     def objective_best_value(self):
         return self.objective_ckpt_cfg.checkpoint.best_model_score
 
-
-__cached_valid_metrics_names: tuple[str] | None = None
-
-
-def check_metric_name(cfg: Cfg.Dict, metric_name: str, attr_name: str):
-    global __cached_valid_metrics_names
-    if __cached_valid_metrics_names is None:
-        task: LightningTaskCfg = cfg.root()['task']
-        if isinstance(task, LightningTaskCfg):
-            __cached_valid_metrics_names = task.metrics_names
-
-    if __cached_valid_metrics_names is not None:
-        metric_name = metric_name.strip()
-        if metric_name not in __cached_valid_metrics_names:
-            raise Cfg.InvalidAttr(f'Unknown metric "{metric_name}" provided for attribute {cfg.fullname}.{attr_name}',
-                                  f"Valid metrics are {', '.join(__cached_valid_metrics_names)}")
-    return metric_name

@@ -1,4 +1,6 @@
 import os
+from copy import copy
+
 from yaml import SafeLoader
 from yaml.scanner import DirectiveToken
 from yaml.parser import ParserError
@@ -6,7 +8,7 @@ from collections import abc
 import numpy as np
 import weakref
 
-from .cfg_dict import CfgDict
+from .cfg_dict import CfgDict, CfgVersion, Mark
 from .cfg_object import UNDEFINED, CfgCollectionType, InvalidAttr
 
 
@@ -46,13 +48,15 @@ def register_obj(path: str, collection=False, type=None):
 
 class ParseError(Exception):
     def __init__(self, error, mark=None, info=None):
-        if error.endswith('.'):
-            error = error[:-1]
-        super(ParseError, self).__init__(error + (', '+str(mark)+'.' if mark is not None else '.')
-                                         + ('\n\t' + info.replace('\n', '\n\t') if info else ''))
         self.mark = mark
         self.error = error
         self.info = info
+
+        if not error.endswith('.'):
+            error += '.'
+        if mark is not None:
+            error = mark.exception_like_description()+'\n'+error
+        super(ParseError, self).__init__('\n  '+(error + ('\n' + info) if info else '').replace('\n', '\n\t\t'))
 
 
 def format2str(v):
@@ -69,19 +73,20 @@ def format2str(v):
 
 
 class CfgParser:
-    def __init__(self, cfg_path, override: dict | None = None):
-        self.path = cfg_path
-        self.files = []
-        self.base = None
-        self.versions = None
-        self.override = CfgDict.from_dict(override, recursive=True, recursive_name=True)
+    def __init__(self, cfg_path, override: dict | None = None, verbose_exception=False):
+        self.path: str = cfg_path
+        self.files: list[CfgFile] = []
+        self.base: CfgDict | None = None
+        self.versions: list[CfgDict] | None = None
+        self.override: CfgDict = CfgDict.from_dict(override, recursive=True, recursive_name=True)
+        self.verbose_exception: bool = verbose_exception
 
     Error = ParseError
 
     def __len__(self):
         if self.base is None:
             return 0
-        return np.prod(len(v) for v in self.versions) if self.versions else 1
+        return np.prod([len(v) for v in self.versions]) if self.versions else 1
 
     def __getitem__(self, item):
         return self.get_config(item)
@@ -102,10 +107,8 @@ class CfgParser:
         if parse_obj:
             try:
                 CfgParser.parse_registered_cfg(cfg, inplace=True)
-            except ParseError as e:
-                raise ParseError(error=e.error, mark=e.mark, info=e.info) from None
-            except InvalidAttr as e:
-                raise ParseError(error=e.error, mark=e.mark, info=e.info) from None
+            except (ParseError, InvalidAttr) as e:
+                raise ParseError(error=e.error, mark=e.mark, info=e.info) from (e if self.verbose_exception else None)
 
         return cfg
 
@@ -136,7 +139,7 @@ class CfgParser:
                     dependencies += [d]
 
     def _merge_files(self):
-        base = CfgDict(mark=Mark(0, 0, self.files[0], self))
+        base = CfgDict(mark=Mark('', 0, 0, self.files[0], self))
         versions = []
 
         for f in reversed(self.files):
@@ -288,6 +291,7 @@ class CfgFile:
                     loader.dispose()
             base = CfgDict.from_dict(yaml_docs[0], recursive=True, read_marks=True)
             versions = [CfgDict.from_dict(_, recursive=True, read_marks=True) for _ in yaml_docs[1:]]
+            versions = [self.mark_fields_with_versions(v, CfgVersion(i, versions)) for i, v in enumerate(versions)]
             dirname = os.path.dirname(self.path)
             self.inherit = [CfgFile(os.path.join(dirname, _), self.parser) for _ in loader.inherit]
 
@@ -302,29 +306,55 @@ class CfgFile:
                              f'(Only yaml and json are accepted.)')
 
         seq_versions = CfgFile.parse_sequence_versions(base)
-        for v in versions:
-            for c in v.walk_cursor():
-                if c.cfg_path in seq_versions.keys() or c.cfg_path in base:
-                    raise ParseError(f'Attribute {c.cfg_path} is already defined', c.mark)
-        versions, self.base = curate_versions_base(versions, base)
+        versions, base = curate_versions_base(versions, base)
 
-        self.versions = [[CfgDict({k: _}) for _ in l] for k, l in seq_versions.items()]
+        # Prevent any attributes defined in sequence versions in this file to be already defined in base or versions
+        versions_attributes_marks = {}
+        for v in versions:
+            versions_attributes_marks |= {c.fullname: c.mark for c in v.walk_cursor(only_leaf=True)}
+        for seq_version in seq_versions:
+            for v in seq_version:
+                for c in v.walk_cursor(only_leaf=True):
+                    if c.fullname in versions_attributes_marks:
+                        mark = versions_attributes_marks[c.fullname]
+                    elif c.fullname in base:
+                        mark = base.get_mark(c.fullname)
+                    else:
+                        continue
+                    raise ParseError(f'Attribute {c.cfg_path} is already defined', mark)
+
+        self.base = base
+        self.versions = seq_versions
         if versions:
-            self.versions.append(versions)
+            self.versions += [versions]
 
         return self
 
     @staticmethod
-    def parse_sequence_versions(cfg_dict: CfgDict):
-        seq_v = {}
-        for cursor in cfg_dict.walk_cursor():
-            if cursor.name.endswith('@') and isinstance(cursor.value, list) and len(cursor.value):
-                seq_v[cursor.fullname[:-1]] = cursor.value
-                r = cfg_dict[cursor.parent_fullname]
-                r.child_mark[cursor.name[:-1]] = r.child_mark[cursor.name]
-                del r[cursor.name]
-                cursor.out()
-        return seq_v
+    def parse_sequence_versions(cfg_dict: CfgDict) -> list[list[CfgDict]]:
+        seq_versions = []
+        for c in cfg_dict.walk_cursor():
+            if c.name.endswith('@') and isinstance(c.value, list) and len(c.value):
+                fullname = c.fullname[:-1]
+                versions = [CfgDict.from_dict({fullname: v}, recursive_name=True)
+                            for v in c.value]
+                if c.mark:
+                    for i, v in enumerate(versions):
+                        mark = copy(c.mark)
+                        mark.version = CfgVersion(i, versions)
+                        v.set_mark(fullname, mark)
+                seq_versions.append(versions)
+
+                r = cfg_dict[c.parent_fullname]
+                del r[c.name]
+                c.out()
+        return seq_versions
+
+    @staticmethod
+    def mark_fields_with_versions(cfg_dict: CfgDict, version) -> CfgDict:
+        for cursor in cfg_dict.walk_cursor(only_leaf=True):
+            cursor.mark.version = version
+        return cfg_dict
 
 
 def curate_versions_base(versions, base):
@@ -339,9 +369,11 @@ def curate_versions_base(versions, base):
     """
     versions_keys = {_ for version in versions for _ in version.walk()}
     shared_keys = {}
+    shared_keys_marks = {}
     for k in versions_keys:
         try:
             shared_keys[k] = base[k]
+            shared_keys_marks[k] = base.get_mark(k)
         except KeyError:
             continue
     if not shared_keys:
@@ -355,6 +387,7 @@ def curate_versions_base(versions, base):
                 version_value = version[k]
             except KeyError:
                 version[k] = base_value     # If missing, fill with base_value
+                version.set_mark(k, shared_keys_marks.get(k, None))
             else:
                 if base_value != version_value:
                     break
@@ -366,6 +399,8 @@ def curate_versions_base(versions, base):
     if len(versions) == 0:
         return [], base
     elif len(versions) == 1:
+        for cursor in versions[0].walk_cursor(only_leaf=True):
+            cursor.mark.version = None
         return [], base.merge(versions[0])
 
     # Remove shared field with the same value (duplicates field)
@@ -375,6 +410,7 @@ def curate_versions_base(versions, base):
     for cursor in simplest_version.walk_cursor():
         if all(cursor.value == version.get(cursor.cfg_path, default=UNDEFINED)
                for version in other_versions):
+            cursor.mark.version = None
             base[cursor.cfg_path] = cursor.value
             cursor.delete(remove_empty_roots=True)
             for version in other_versions:
@@ -383,7 +419,7 @@ def curate_versions_base(versions, base):
     return simplified_versions, base
 
 
-def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_base):
+def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_base) -> tuple[list[CfgDict], CfgDict]:
     """
     Assume that inherited_versions and inherited_base are curated.
     Assume that new_versions and new_base are curated.
@@ -399,12 +435,14 @@ def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_b
         for k in keys:
             try:
                 # Remove new_versions fields from inherited_base
-                inh_base_v = inherited_base.pop(k, remove_empty_roots=True)
+                inh_base_v, inh_base_mark = inherited_base.pop(k, remove_empty_roots=True, with_mark=True)
             except KeyError:
                 continue
             for version in versions:
                 if k not in version:
                     version[k] = inh_base_v     # Fill new_versions with inherited_base value
+                    if inh_base_mark:
+                        version.set_mark(k, inh_base_mark)
         new_versions_keys.append(keys)
 
     # --- Curate inherited_versions and new_base
@@ -456,11 +494,12 @@ class CfgYamlLoader(SafeLoader):
         mapping = super(CfgYamlLoader, self).construct_mapping(node, deep=deep)
         # Add 1 so line numbering starts at 1
         mark = node.start_mark
-        mapping["__mark__"] = Mark(mark.line, mark.column-1, self.file, self.parser)
+        mapping["__mark__"] = Mark(node.id if node.id != 'mapping' else None, mark.line, mark.column-1, self.file, self.parser)
+        node_id = node.id+'.' if node.id != 'mapping' else ''
         child_marks = {}
         for k, v in node.value:
             mark = v.start_mark
-            child_marks[k.value] = Mark(mark.line+1, mark.column, self.file, self.parser)
+            child_marks[k.value] = Mark(node_id+k.value, mark.line+1, mark.column, self.file, self.parser)
         mapping["__child_marks__"] = child_marks
         return mapping
 
@@ -501,29 +540,3 @@ class CfgYamlLoader(SafeLoader):
             self.forward()
             ch = self.peek()
         return value
-
-
-class Mark:
-    def __init__(self, line: int, col: int, file: CfgFile | str, parser: CfgParser):
-        self.line = line
-        self.col = col
-        self.file = file if isinstance(file, CfgFile) else CfgFile(file, parser)
-        self._parser = weakref.ref(parser)
-
-    def __str__(self):
-        return f'in "{self.filename}", line {self.line}, column {self.col}'
-
-    def __repr__(self):
-        return f'Mark({self.line}, {self.col}, file="{self.filepath}")'
-
-    @property
-    def filename(self) -> str:
-        return os.path.basename(self.file.path)
-
-    @property
-    def filepath(self) -> str:
-        return self.file.path
-
-    @property
-    def parser(self) -> CfgParser:
-        return self._parser()

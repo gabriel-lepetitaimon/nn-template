@@ -1,7 +1,6 @@
-from collections.abc import Mapping
+from typing import Mapping, Iterable, Dict
 from copy import copy
 from types import UnionType
-from collections.abc import Iterable
 import weakref
 
 from .cfg_dict import CfgDict, CfgCollection, CfgList, UNDEFINED, UNSPECIFIED, HYPER_PARAMETER
@@ -180,7 +179,7 @@ class CfgAttr:
                 value = self._checker(cfg_dict, value)
             except (TypeError, ValueError):
                 raise InvalidAttr(f'Invalid value for attribute {self.fullname}',
-                                     f'Provided value was: {repr(value)}')
+                                  f'Provided value was: {repr(value)}')
         value = self._check_value(value, cfg_dict)
         if self._post_checker is not None:
             try:
@@ -233,7 +232,7 @@ class CfgObj(CfgDict, metaclass=MetaCfgObj):
         if data:
             self.update(data)
 
-    def _init_after_populate(self):
+    def _after_populate(self):
         pass
 
     def init_after_populate(self):
@@ -243,7 +242,7 @@ class CfgObj(CfgDict, metaclass=MetaCfgObj):
             if attr_name not in self._attr_values and obj_attr.default is not UNDEFINED:
                 self[attr_name] = obj_attr.default
 
-        self._init_after_populate()
+        self._after_populate()
 
         for c in self.attr().values():
             if getattr(c, 'init_after_populate', None) is not None:
@@ -266,7 +265,9 @@ class CfgObj(CfgDict, metaclass=MetaCfgObj):
                 try:
                     attr_value = attr.check_value(value, cfg_dict=self)
                 except InvalidAttr as e:
-                    raise ParseError(e.error, mark, e.info) from None
+                    if mark is not None:
+                        e.mark = mark
+                    raise e
                 if isinstance(attr_value, CfgDict):
                     if isinstance(value, CfgDict):
                         value = attr_value
@@ -316,11 +317,11 @@ class CfgObj(CfgDict, metaclass=MetaCfgObj):
         r.update(cfg_dict)
         return r
 
-    def attr(self, default=UNDEFINED):
+    def attr(self, default=UNDEFINED) -> Dict[str, any]:
         return {k: getattr(self, k, default) for k in self.__attr__}
 
     @classmethod
-    def attributes(cls, filter_type=None):
+    def attributes(cls, filter_type=None) -> Dict[str, CfgAttr]:
         if filter_type:
             return {name: attr for name, attr in cls.__attr__.items()
                     if isinstance(attr, filter_type)}
@@ -371,7 +372,7 @@ class IntAttr(CfgAttr):
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             value = IntAttr.interpret(value)
-        except TypeError:
+        except (TypeError, ValueError):
             raise InvalidAttr(f"{value} is not a valid integer for attribute {self.fullname}")
         if self.min is not None and self.min > value:
             raise InvalidAttr(f"Invalid value for attribute {self.fullname}",
@@ -554,6 +555,49 @@ class StrListAttr(CfgAttr):
                              f"Provided value was: {value}")
 
 
+class ListAttr(CfgAttr):
+    def __init__(self, obj_type, min_size: int = 1, max_size: int = None, size: int = None,
+                 default=UNDEFINED, nullable=None):
+        assert isinstance(obj_type, type) or isinstance(obj_type, CfgAttr)
+        if size:
+            self.min_size = size
+            self.max_size = size
+        else:
+            if min_size < 0 or (max_size is not None and max_size < min_size):
+                raise InvalidAttrDeclaration(f'min_size must be positive and max_size must be higher than min_size')
+            self.min_size = min_size
+            self.max_size = max_size
+        self.obj_type = obj_type
+        super().__init__(default=default, nullable=nullable)
+
+    def _check_value(self, value, cfg_dict: CfgDict | None = None):
+        if isinstance(value, str):
+            value = value.split(',')
+        elif not isinstance(value, Iterable):
+            value = (value,)
+
+        if self.min_size and len(value) < self.min_size:
+            raise InvalidAttr(f'Invalid size for list {self.fullname}',
+                              f'Size must be higher than {self.min_size} but the provided list only have {len(value)} '
+                              f'elements.')
+        if self.max_size and len(value) > self.max_size:
+            raise InvalidAttr(f'Invalid size for list {self.fullname}',
+                              f'Size must be lower than {self.max_size} but the provided list have {len(value)} '
+                              f'elements.')
+
+        currated_value = []
+        for v in value:
+            if isinstance(self.obj_type, CfgAttr):
+                currated_value += [self.obj_type.check_value(v, cfg_dict)]
+            else:
+                try:
+                    currated_value += [self.obj_type(v)]
+                except:
+                    raise InvalidAttr(f'Invalid item "{v}" in list for attribute {self.fullname}',
+                                      f'Item should be of type {self.obj_type}.') from None
+        return currated_value
+
+
 class ObjAttr(CfgAttr):
     def __init__(self, default=UNDEFINED, shortcut: str=None, obj_types=None, nullable=None):
         """
@@ -650,10 +694,10 @@ class ObjListAttr(CfgAttr):
         if isinstance(value, list):
             value = CfgDict.from_list(value, recursive=True)
         elif isinstance(value, str):
+            mark = cfg_dict.child_mark.get(self.name, None) if cfg_dict is not None else None
             data = [v.strip() for v in value.split(',') if v.strip()]
             value = CfgDict(data={d: d for d in data}, parent=cfg_dict,
-                            mark=cfg_dict.child_mark[self.name],
-                            child_mark={d: cfg_dict.child_mark[self.name] for d in data})
+                            mark=mark, child_mark={d: mark for d in data})
         value = CfgList(data=value, obj_types=self.obj_types, id_key=self.id_key, type_key=self.type_key,
                         parent=cfg_dict)
         return value

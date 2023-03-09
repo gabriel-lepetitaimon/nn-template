@@ -1,3 +1,5 @@
+__all__ = ['LightningTask', 'LightningTaskCfg']
+
 from typing import Tuple
 import pytorch_lightning as pl
 
@@ -6,6 +8,7 @@ from .. import Cfg
 from ..datasets import DatasetsCfg
 from .losses import LossCfg, loss_attr
 from .optimizer import OptimizerCfg
+from .lr_schedulers.schedulers_core import SchedulerCfg, scheduler
 
 
 class LightningTaskCfg(Cfg.Obj):

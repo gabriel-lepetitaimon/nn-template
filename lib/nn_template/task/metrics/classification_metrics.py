@@ -1,11 +1,14 @@
+__all__ = ['Accuracy', 'AUROC', 'CohenKappa', 'ConfusionMatrix', 'Dice',  'F1Score', 'FBeta', 'JaccardIndex',
+           'MatthewsCorrCoef', 'Precision', 'Recall', 'Specificity']
+
 import torchmetrics as tm
 import wandb
-from .metrics_core import Metric, Cfg, register_metric, pl
+from .metrics_core import MetricCfg, Cfg, register_metric, pl
 from ...misc.clip_pad import select_pixels_by_mask
 
 
-class GenericClassificationMetric(Metric):
-    task = Cfg.oneOf('binary', 'multiclass', default='multiclass')
+class GenericClassificationMetric(MetricCfg):
+    task = Cfg.oneOf('binary', 'multiclass', None, default=None)
     ignore_index = Cfg.int(None)
     validate_args = Cfg.bool(True)
 
@@ -24,9 +27,14 @@ class GenericClassificationMetric(Metric):
         if num_classes == 'binary':
             self['task'] = 'binary'
             num_classes = None
-        generic_args = {'task': self.task,
+        task = self.task
+        if task is None:
+            n_classes = self.root()['task.n-classes']
+            task = 'binary' if n_classes == 'binary' or n_classes <= 2 else 'multiclass'
+        generic_args = {'task': task,
                         'ignore_index': self.ignore_index,
                         'validate_args': self.validate_args}
+        # print('create', metric, args, self.common_kwargs(), generic_args)
         return metric(num_classes=num_classes, **args, **self.common_kwargs(), **generic_args)
 
     def _create(self):
@@ -34,14 +42,14 @@ class GenericClassificationMetric(Metric):
 
 
 class AveragableClassificationMetric(GenericClassificationMetric):
-    average = Cfg.oneOf('micro', 'macro', 'weighted', 'none', None, default='micro')
+    average = Cfg.oneOf('micro', 'macro', 'weighted', 'none', None, default='macro')
 
     def common_kwargs(self):
         return super().common_kwargs() | {'average': self.average}
 
 
 class MultilabelClassificationMetric(AveragableClassificationMetric):
-    task = Cfg.oneOf('binary', 'multiclass', 'multilabel', default='multiclass')
+    task = Cfg.oneOf('binary', 'multiclass', 'multilabel', default=None)
     num_labels = Cfg.int(None)
     top_k = Cfg.int(min=1, default=None)
 
@@ -56,6 +64,10 @@ class MultilabelClassificationMetric(AveragableClassificationMetric):
 @register_metric('acc', 'classification')
 class Accuracy(MultilabelClassificationMetric):
     threshold = Cfg.float(0.5)
+
+    def log(self, module: pl.LightningModule, name: str, metric: tm.Metric):
+        super().log(module, name, metric)
+        # print('Acc | ', {k: v for k, v in zip('tp,fp,tn,fn'.split(','), metric._final_state())}, metric.compute())
 
     def _create(self):
         return tm.Accuracy, {'threshold': self.threshold}
@@ -89,6 +101,8 @@ class ConfusionMatrix(AveragableClassificationMetric):
         return tm.ConfusionMatrix, {'threshold': self.threshold, 'normalize': self.normalize}
 
     def log(self, module: pl.LightningModule, name: str, metric: tm.Metric):
+        if name.startswith('val'):
+            return
         from torchmetrics.classification.confusion_matrix import BinaryConfusionMatrix
         n_classes = 2 if isinstance(metric, BinaryConfusionMatrix) else metric.num_classes
 
@@ -116,12 +130,16 @@ class ConfusionMatrix(AveragableClassificationMetric):
 
 @register_metric('dice', 'classification')
 class Dice(MultilabelClassificationMetric):
-    average = Cfg.oneOf('micro', 'macro', 'weighted', 'none', None, 'samples', default='micro')
+    average = Cfg.oneOf('micro', 'macro', 'none', None, 'samples', default='macro')
     mdmc_average = Cfg.oneOf('samplewise', 'global', default=None)
     threshold = Cfg.float(0.5)
 
     def _create(self):
         return tm.Dice, {'threshold': self.threshold, 'mdmc_average': self.mdmc_average}
+
+    def log(self, module: pl.LightningModule, name: str, metric: tm.Metric):
+        super().log(module, name, metric)
+        # print('Dice | ', {k: v for k, v in zip('tp,fp,tn,fn'.split(','), metric._get_final_stats())}, metric.compute())
 
 
 @register_metric('f1', 'classification')

@@ -3,6 +3,8 @@ import inspect
 import optuna
 import traceback
 
+import pytorch_lightning as pl
+
 from ..config import Cfg
 from ..config.cfg_parser import ParseError
 from ..hyperparameters_tuning.generic_optimizer import HyperParameter, HyperParametersOptimizerEngine, \
@@ -269,7 +271,7 @@ class OptunaCfg(Cfg.Obj):
         debug_run = hardware.debug
         def run_trial(trial):
             self._trial = trial
-            self.root()['experiment.run_id'] = self.valid_trials_count()
+            self.root()['experiment.trial_id'] = self.valid_trials_count()
             self.engine.suggest(trial)
 
             try:
@@ -339,7 +341,7 @@ class OptunaCfg(Cfg.Obj):
             return prune
         return False
 
-    def pytorch_lightnings_callbacks(self) -> list[PyTorchLightningPruningCallback]:
+    def pl_callbacks(self) -> list[pl.Callback]:
         """
         Generate a pruning callback
         :return:

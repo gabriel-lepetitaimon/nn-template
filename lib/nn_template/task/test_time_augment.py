@@ -1,6 +1,6 @@
 import torch
 from functools import cached_property
-from . import Cfg
+from ..config import Cfg
 
 
 class TestTimeAugmentCfg(Cfg.Obj):

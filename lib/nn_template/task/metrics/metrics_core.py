@@ -1,3 +1,5 @@
+__all__ = ['MetricCfg', 'metric_attr', 'metrics_attr', 'register_metric', 'MonitoredMetricCfg', 'check_metric_name']
+
 from typing import Dict, Iterable
 import pytorch_lightning as pl
 import torchmetrics as tm
@@ -6,7 +8,7 @@ from ...config import Cfg
 from ...config.cfg_dict import UNDEFINED
 
 
-class Metric(Cfg.Obj):
+class MetricCfg(Cfg.Obj):
     metric_type = "metric"
     metric_name = "METRIC_NAME"
 
@@ -20,7 +22,7 @@ class Metric(Cfg.Obj):
         module.log(name, metric, add_dataloader_idx=False, enable_graph=False)
 
 
-_METRICS: Dict[str, Metric] = {}
+_METRICS: Dict[str, MetricCfg] = {}
 
 
 def _metrics_by_type(metric_type):
@@ -44,10 +46,46 @@ def metrics_attr(default=UNDEFINED, metric_type: Iterable[str] | str = None):
 
 
 def register_metric(name: str, metric_type: str = 'metric'):
-    def register(f_metric: Metric):
+    def register(f_metric: MetricCfg):
         f_metric.metric_type = metric_type
         f_metric.metric_name = name
         _METRICS[name] = f_metric
         return f_metric
 
     return register
+
+
+class MonitoredMetricCfg(Cfg.Obj):
+    metric = Cfg.str()
+    mode = Cfg.oneOf('min', 'max', default='max')
+
+    @metric.post_checker
+    def check_metric(self, metric):
+        if metric.endswith('^'):
+            metric = metric[:-1].strip()
+            self['mode'] = 'min'
+        check_metric_name(self, metric, 'checkpoint')
+        if not metric.startswith(('val', 'train')):
+            raise Cfg.InvalidAttr(f'Invalid metric: "{metric}"',
+                                  'Monitored metrics during training must be computed on '
+                                  'the validation or training datasets.')
+        return metric
+
+
+__cached_valid_metrics_names: tuple[str] | None = None
+
+
+def check_metric_name(cfg: Cfg.Dict, metric_name: str, attr_name: str):
+    from ..task import LightningTaskCfg
+    global __cached_valid_metrics_names
+    if __cached_valid_metrics_names is None:
+        task: LightningTaskCfg = cfg.root()['task']
+        if isinstance(task, LightningTaskCfg):
+            __cached_valid_metrics_names = task.metrics_names
+
+    if __cached_valid_metrics_names is not None:
+        metric_name = metric_name.strip()
+        if metric_name not in __cached_valid_metrics_names:
+            raise Cfg.InvalidAttr(f'Unknown metric "{metric_name}" provided for attribute {cfg.fullname}.{attr_name}',
+                                  f"Valid metrics are {', '.join(__cached_valid_metrics_names)}")
+    return metric_name

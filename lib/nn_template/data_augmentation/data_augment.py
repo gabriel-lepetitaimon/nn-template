@@ -394,6 +394,29 @@ class DataAugment:
         return augment
 
     @augment_method('geometric')
+    def shear(self, x=(-5,5), y=(-5,5), value_type=None):
+        """
+        Perform data augmentation by shearing the image.
+        :param x: Angle of horizontal shear in degrees in range [-90, 90].
+        :param y: Angle of vertical shear in degrees.
+        :param value_type:
+        :return:
+        """
+        x = RD.auto(x, symetric=True)
+        y = RD.auto(y, symetric=True)
+
+        def augment(x, x_shear, y_shear):
+            h, w, _ = x.shape
+            x_shear = np.tan(x_shear*np.pi/180)
+            y_shear = np.tan(y_shear*np.pi/180)
+            M = np.array([[1, x_shear, 0],
+                          [y_shear, 1, 0]])
+            x = cv2.warpAffine(x, M, (w, h))
+            return x
+
+        return augment, x, y
+
+    @augment_method('geometric')
     def flip(self, p_horizontal=0.5, p_vertical=0.5, value_type=None):
         h_flip = RD.binary(p_horizontal)
         v_flip = RD.binary(p_vertical)
