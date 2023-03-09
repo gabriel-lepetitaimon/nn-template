@@ -7,20 +7,22 @@ from ..task import Segmentation2DCfg
 from ..task.losses import Loss
 
 
+@Cfg.register_obj('model', type='wnet')
 class WNetCfg(SimpleUnetCfg):
-    auxilary_loss = Cfg.any(Cfg.float(), Cfg.bool(), default=1)
+    auxilary_loss = Cfg.oneOf(Cfg.float(), Cfg.bool(), default=1)
 
     def create(self, in_channels: int):
         return WNet(self, in_channels)
 
     def create_unet(self, in_channels: int):
-        return super().create_unet(in_channels)
+        return super().create(in_channels)
 
 
 class WNet(nn.Module):
     def __init__(self, cfg: WNetCfg, in_channels: int):
         super().__init__()
         self.cfg = cfg
+        self.task_cfg: Segmentation2DCfg = cfg.root()['task']
         self.in_channels = in_channels
 
         n_in = in_channels
@@ -29,9 +31,10 @@ class WNet(nn.Module):
         self.unet2: SimpleUnet = self.cfg.create_unet(n_in+self.unet1.n_classes)
 
     def forward(self, x):
-        y1 = self.unet1(x)
-        y2 = self.unet2(cat_crop(x, y1))
-        return y2
+        y = self.unet1(x)
+        y = self.task_cfg.apply_logits(y)
+        y = self.unet2(cat_crop(x, y))
+        return y
 
     def create_auxilary_loss(self):
         if not self.cfg.auxilary_loss:
@@ -50,6 +53,8 @@ class WNet(nn.Module):
         def forward_hook(module, input, output):
             nonlocal unet1_output
             if self.training:
+                if not self.task_cfg.logits_in_loss:
+                    output = self.task_cfg.apply_logits(output)
                 unet1_output = output
             else:
                 unet1_output = None

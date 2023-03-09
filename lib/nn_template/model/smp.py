@@ -23,9 +23,9 @@ ARCHITECTURE = {
 @Cfg.register_obj('model', type='smp')
 class SMPModelCfg(Cfg.Obj):
     architecture = Cfg.strMap(ARCHITECTURE)
-    encoder_name: str = 'resnet34'
+    encoder_name = Cfg.oneOf(*smp.encoders.get_encoder_names(), default='resnet34')
     encoder_depth: int = Cfg.int(min=3, max=5, default=5)
-    encoder_weights = Cfg.str('imagenet', nullable=True)
+    encoder_weights = Cfg.oneOf('imagenet', 'noisy-student', 'swsl', 'random', None, default='imagenet')
     decoder_use_batchnorm = Cfg.oneOf(True, False, 'inplace', default=True)
 
     def _after_populate(self):

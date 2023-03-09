@@ -83,6 +83,16 @@ class Segmentation2DCfg(LightningTaskCfg):
     def create_net(self, model: nn.Module):
         return Segmentation2D(self, model=model)
 
+    @property
+    def logits_in_loss(self):
+        return self.loss.name == 'cross-entropy' and self.loss.with_logits
+
+    def apply_logits(self, proba: torch.Tensor) -> torch.Tensor:
+        if self.n_classes != 'binary':
+            return torch.nn.functional.softmax(proba, dim=1)
+        else:
+            return torch.nn.functional.sigmoid(proba)
+
 
 # ==================================================================================
 class Segmentation2D(LightningTask):
@@ -136,7 +146,6 @@ class Segmentation2D(LightningTask):
         x, target = batch['x'], batch['y']
         mask = batch.get('mask', None)
         binary = self.cfg.n_classes == 'binary'
-        logits_in_loss = self.cfg.loss.name == 'cross-entropy' and self.cfg.loss.with_logits
 
         if test_time_augment and self.cfg.test_time_augment:
             merger = self.cfg.test_time_augment.create_merger()
@@ -156,25 +165,19 @@ class Segmentation2D(LightningTask):
             proba = proba.squeeze(1)
         target = clip_pad_center(target, proba.shape)
 
-        if not logits_in_loss:
-            proba = self.apply_logits(proba)
+        if not self.cfg.logits_in_loss:
+            proba = self.cfg.apply_logits(proba)
 
         loss = self.loss(proba, target, mask)
         if self.auxilary_loss:
             loss += self.auxilary_loss(proba, target, mask)
 
         proba = proba.detach()
-        if logits_in_loss:
-            proba = self.apply_logits(proba)
+        if self.cfg.logits_in_loss:
+            proba = self.cfg.apply_logits(proba)
         batch['y_pred'] = proba > .5 if binary else torch.argmax(proba, dim=1)
 
         return loss
-
-    def apply_logits(self, proba: torch.Tensor) -> torch.Tensor:
-        if self.cfg.n_classes != 'binary':
-            return torch.nn.functional.softmax(proba, dim=1)
-        else:
-            return torch.nn.functional.sigmoid(proba)
 
     def compute_metrics(self, batch, dataset='val', log=False):
         for name, metric_cfg in self.metrics_cfg.items():
