@@ -1,3 +1,4 @@
+import os
 import os.path as P
 
 import math
@@ -112,6 +113,7 @@ class DatasetSourceRef(Cfg.Obj):
 
 class DatasetCfg(Cfg.Obj):
     source = Cfg.obj_list(main_key='source', obj_types=DatasetSourceRef)
+    ignore_metrics = Cfg.strList(default=[])
     augment: AugmentCfg = Cfg.obj(default=None, shortcut='augmentation', nullable=True)
 
     def get_indexes(self):
@@ -173,6 +175,7 @@ class DatasetFields(Cfg.Obj):
 ########################################################################################################################
 @Cfg.register_obj('datasets')
 class DatasetsCfg(Cfg.Obj):
+    minibatch = Cfg.int()
     fields: DatasetFields = Cfg.obj()
     sources = Cfg.collection(DataSource)
 
@@ -180,22 +183,30 @@ class DatasetsCfg(Cfg.Obj):
     validate: DatasetCfg = Cfg.obj(shortcut='source')
     test = Cfg.collection(obj_types=DatasetCfg)
 
+    @property
+    def minibatch_size(self):
+        return math.ceil(self.minibatch / self.root().get('hardware.minibatch-splits', 1)) if self.minibatch else None
+
     def create_train_val_dataloaders(self):
-        batch_size = self.root()['training'].minibatch_size
-        num_workers = self.root()['hardware'].num_workers
+        batch_size = self.minibatch_size
+        num_workers = self.root().get('hardware.num_workers', os.cpu_count())
 
         train = DataLoader(self.train.dataset(),
                            pin_memory=True, shuffle=True,
                            batch_size=batch_size, num_workers=num_workers)
         validate = DataLoader(self.validate.dataset(),
                               pin_memory=True,
-                              num_workers=6, batch_size=6)
+                              num_workers=6, batch_size=self.minibatch_size)
         return train, validate
 
     def create_test_dataloaders(self):
         return [DataLoader(d.dataset(), pin_memory=True,
-                           num_workers=6, batch_size=6)
+                           num_workers=6, batch_size=self.minibatch_size)
                 for d in self.test.values()]
+
+    @property
+    def test_dataloaders_names(self) -> tuple[str]:
+        return tuple(self.test.keys())
 
     def create_all_dataloaders(self):
         train, val = self.create_train_val_dataloaders()

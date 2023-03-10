@@ -13,7 +13,7 @@ from .task import Cfg, LightningTask, LightningTaskCfg, LossCfg, loss_attr, Opti
 from .test_time_augment import TestTimeAugmentCfg
 from ..misc.clip_pad import clip_pad_center, select_pixels_by_mask
 from ..datasets import DatasetsCfg
-from .metrics import MetricCfg
+from .metrics import MetricCfg, Metric
 
 
 @Cfg.register_obj("task", type='Segmentation2D')
@@ -31,7 +31,7 @@ class Segmentation2DCfg(LightningTaskCfg):
     def check_metrics(self, value):
         for metric in value.values():
             metric: MetricCfg
-            if self['n-classes'] != 'binary':
+            if self['n-classes'] not in ('binary', 2):
                 match metric.metric_name:
                     case 'auroc':
                         raise Cfg.InvalidAttr(f'Invalid metric "auroc" for "{self.fullname}"',
@@ -99,16 +99,17 @@ class Segmentation2D(LightningTask):
     def __init__(self, cfg: Segmentation2DCfg, model: nn.Module):
         super(Segmentation2D, self).__init__()
         self.cfg = cfg
+        self.datasets_cfg: DatasetsCfg = self.cfg.root()['datasets']
         self.model = model
         self.loss = self.cfg.loss.create()
         self.auxilary_loss = model.create_auxilary_losses() if hasattr(model, 'create_auxilary_losses') else None
 
 
         self.metrics_cfg = {f"{dataset}-{metric_name}": metric
-                            for dataset in ('val',) + self.test_dataloaders_names
+                            for dataset in ('val', 'test')
                             for metric_name, metric in self.cfg.metrics.items()}
-        self.metrics = {name: metric.create(num_classes=self.cfg.n_classes)
-                        for name, metric in self.metrics_cfg.items()}
+        self.metrics: dict[str, Metric] = {name: metric.create(num_classes=self.cfg.n_classes)
+                                     for name, metric in self.metrics_cfg.items()}
         for name, metric in self.metrics.items():
             self.add_module(name, metric)
 
@@ -179,9 +180,19 @@ class Segmentation2D(LightningTask):
 
         return loss
 
-    def compute_metrics(self, batch, dataset='val', log=False):
+    def compute_metrics(self, batch, dataset='val', log=False, test=False):
+        metric_prefix = 'test' if test else dataset
+
+        if test:
+            ignored_metrics = self.datasets_cfg.test[dataset].ignore_metrics
+        elif dataset == 'val':
+            ignored_metrics = self.datasets_cfg.validate.ignore_metrics
+        else:
+            ignored_metrics = []
+
         for name, metric_cfg in self.metrics_cfg.items():
-            if dataset is not None and name.startswith(dataset):
+            metric_cfg: MetricCfg
+            if name.startswith(metric_prefix) and metric_cfg.name not in ignored_metrics:
                 metric = self.metrics[name]
                 args = metric_cfg.prepare_data(batch['y_pred'], batch['y'], batch.get('mask', None))
                 try:
@@ -194,15 +205,17 @@ class Segmentation2D(LightningTask):
                     print('!' * len(e) + '\n\n')
                 else:
                     if log:
+                        if test and name.startswith('test'):
+                            name = dataset+name[4:]
                         metric_cfg.log(self, name, metric)
 
-    def evaluate_model(self, batch, dataset_name='', test_time_augment=False):
+    def evaluate_model(self, batch, dataset_name='', test_time_augment=False, test=False):
         loss = self.compute_pred_target_loss(batch, test_time_augment=test_time_augment)
+
+        self.compute_metrics(batch, dataset=dataset_name, log=True, test=test)
         if dataset_name:
             dataset_name += '-'
-
         self.log(dataset_name+'loss', loss)
-        self.compute_metrics(batch, dataset=dataset_name, log=True)
 
     def training_step(self, batch, batch_idx):
         loss = self.compute_pred_target_loss(batch)
@@ -223,8 +236,13 @@ class Segmentation2D(LightningTask):
             dataloader_name = dataloader_name[dataloader_id]
         else:
             raise RuntimeError
-        self.evaluate_model(batch, dataset_name=dataloader_name, test_time_augment=True)
+        self.evaluate_model(batch, dataset_name=dataloader_name, test_time_augment=True, test=True)
         return batch
+
+    def on_test_epoch_start(self) -> None:
+        for metric_name, metric in self.metrics.items():
+            if metric_name.startswith('test'):
+                metric.reset()
 
     @property
     def test_dataloaders_names(self) -> tuple[str]:

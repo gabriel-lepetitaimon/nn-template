@@ -1,8 +1,6 @@
 import argparse
-import numpy as np
-from nn_template import Cfg
-from nn_template.hyperparameters_tuning.optuna import OptunaCfg
-
+from nntemplate import Cfg
+from nntemplate.hyperparameters_tuning.optuna import OptunaCfg
 from run_train import run_train
 
 
@@ -25,6 +23,14 @@ def main():
 
 
 def exhaust_runs(cfg_filepath: str, override_cfg=None):
+    """
+    Parse the configuration file and run the training until completion of the hyperparameter search for every version
+    of the file.
+
+    Args:
+        cfg_filepath: Path to the configuration file.
+        override_cfg: Dictionary of configuration attributes to override.
+    """
     parser = Cfg.Parser(cfg_filepath, override=override_cfg).parse()
     for cfg in parser.get_configs():
 

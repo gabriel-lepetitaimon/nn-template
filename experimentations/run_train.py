@@ -1,19 +1,25 @@
-import optuna
+from nntemplate import CfgDict
+from nntemplate.experiment import ExperimentCfg
+from nntemplate.datasets import DatasetsCfg
+from nntemplate.training import TrainingCfg
+from nntemplate.hyperparameters_tuning.optuna import OptunaCfg
+from nntemplate.hardware import HardwareCfg
+from nntemplate.task.segmentation2D import Segmentation2DCfg
+from nntemplate.model import SMPModelCfg
+from nntemplate.misc.function_tools import LogTimer
 
-from nn_template import CfgDict
-from nn_template.experiment import ExperimentCfg
-from nn_template.datasets import DatasetsCfg
-from nn_template.training import TrainingCfg
-from nn_template.hyperparameters_tuning.optuna import OptunaCfg
-from nn_template.hardware import HardwareCfg
-from nn_template.task.segmentation2D import Segmentation2DCfg
-from nn_template.model import SMPModelCfg
-from nn_template.misc.function_tools import LogTimer
-
-from nn_template.callbacks.log_artifacts import Export2DLabel
+from nntemplate.callbacks.log_artifacts import Export2DLabel
 
 
 def run_train(cfg: CfgDict):
+    """
+    Perform a single training run with the given configuration.
+    Args:
+        cfg (CfgDict): Configuration dictionary.
+
+    Returns:
+
+    """
     experiment_cfg: ExperimentCfg = cfg['experiment']
     training_cfg: TrainingCfg = cfg['training']
     task_cfg: Segmentation2DCfg = cfg['task']

@@ -67,19 +67,18 @@ class Accuracy(MultilabelClassificationMetric):
 
     def log(self, module: pl.LightningModule, name: str, metric: tm.Metric):
         super().log(module, name, metric)
-        # print('Acc | ', {k: v for k, v in zip('tp,fp,tn,fn'.split(','), metric._final_state())}, metric.compute())
 
     def _create(self):
         return tm.Accuracy, {'threshold': self.threshold}
 
 
 @register_metric('auroc', 'classification')
-class AUROC(AveragableClassificationMetric):
+class AUROC(MultilabelClassificationMetric):
     average = Cfg.oneOf('macro', 'weighted', 'none', None, default='macro')
     max_fpr = Cfg.float(None, min=0)
 
     def _create(self):
-        return tm.AUROC, {'max_fpr': self.max_fpr}
+        return tm.AUROC, {'max_fpr': self.max_fpr, 'compute_on_cpu': True}
 
 
 @register_metric('kappa', 'classification')

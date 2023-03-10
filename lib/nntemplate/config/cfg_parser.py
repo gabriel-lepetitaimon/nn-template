@@ -56,7 +56,7 @@ class ParseError(Exception):
             error += '.'
         if mark is not None:
             error = mark.exception_like_description()+'\n'+error
-        super(ParseError, self).__init__('\n  '+(error + ('\n' + info) if info else '').replace('\n', '\n\t\t'))
+        super(ParseError, self).__init__('\n  '+(error + ('\n' + info if info else '')).replace('\n', '\n\t\t'))
 
 
 def format2str(v):
@@ -108,7 +108,7 @@ class CfgParser:
             try:
                 CfgParser.parse_registered_cfg(cfg, inplace=True)
             except (ParseError, InvalidAttr) as e:
-                raise ParseError(error=e.error, mark=e.mark, info=e.info) from (e if self.verbose_exception else None)
+                raise ParseError(error=e.error, mark=e.mark, info=e.info) from e #(e if self.verbose_exception else None)
 
         return cfg
 
@@ -492,7 +492,6 @@ class CfgYamlLoader(SafeLoader):
 
     def construct_mapping(self, node, deep=False):
         mapping = super(CfgYamlLoader, self).construct_mapping(node, deep=deep)
-        # Add 1 so line numbering starts at 1
         mark = node.start_mark
         mapping["__mark__"] = Mark(node.id if node.id != 'mapping' else None, mark.line, mark.column-1, self.file, self.parser)
         node_id = node.id+'.' if node.id != 'mapping' else ''
@@ -502,6 +501,19 @@ class CfgYamlLoader(SafeLoader):
             child_marks[k.value] = Mark(node_id+k.value, mark.line+1, mark.column, self.file, self.parser)
         mapping["__child_marks__"] = child_marks
         return mapping
+
+    def construct_sequence(self, node, deep=...):
+        sequence = super(CfgYamlLoader, self).construct_sequence(node, deep=deep)
+        mark_dict = {}
+        mark = node.start_mark
+        mark_dict["__mark__"] = Mark(node.id if node.id != 'sequence' else None, mark.line, mark.column-1, self.file, self.parser)
+        child_marks = {}
+        for i, v in enumerate(node.value):
+            mark = v.start_mark
+            child_id = node.id+f'[{i}]' if node.id != 'sequence' else None
+            child_marks[i] = Mark(child_id, mark.line+1, mark.column, self.file, self.parser)
+        mark_dict["__child_marks__"] = child_marks
+        return sequence + [mark_dict]
 
     def scan_directive(self):
         # -- Code copied from yaml.scanner.scan_directive --
@@ -516,7 +528,7 @@ class CfgYamlLoader(SafeLoader):
         elif name == 'TAG':
             value = self.scan_tag_directive_value(start_mark)
             end_mark = self.get_mark()
-        elif name == "INHERIT":
+        elif name == "IMPORT":
             value = self.scan_inherit_value()
             if value in self.inherit:
                 raise ParserError("while parsing inheritance", self.marks[-1],

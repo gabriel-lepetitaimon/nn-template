@@ -97,4 +97,4 @@ class LogTimer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None and self.log:
-            print(f'     done in {time()-self.t0:.1f}s.')
+            print(f'  done in {time()-self.t0:.1f}s.\n')

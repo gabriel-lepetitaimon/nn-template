@@ -8,9 +8,9 @@ class HardwareCfg(Cfg.Obj):
     gpus = Cfg.str(None)
     num_workers = Cfg.oneOf('auto', Cfg.int(min=0), default='auto')
 
-    minibatch_splits = 1
+    minibatch_splits = Cfg.int(1, min=1)
     precision = Cfg.oneOf('64', '32', 'bf16', '16', default=None)
-    cudnn_benchmark = False
+    cudnn_benchmark = Cfg.bool(False)
 
     @gpus.checker
     def check_gpus(self, v):

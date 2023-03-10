@@ -1,8 +1,9 @@
-__all__ = ['MetricCfg', 'metric_attr', 'metrics_attr', 'register_metric', 'MonitoredMetricCfg', 'check_metric_name']
+__all__ = ['MetricCfg', 'Metric', 'metric_attr', 'metrics_attr', 'register_metric', 'MonitoredMetricCfg', 'check_metric_name']
 
 from typing import Dict, Iterable
 import pytorch_lightning as pl
 import torchmetrics as tm
+from torchmetrics import Metric
 
 from ...config import Cfg
 from ...config.cfg_dict import UNDEFINED

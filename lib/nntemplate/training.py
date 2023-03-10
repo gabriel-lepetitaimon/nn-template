@@ -38,7 +38,6 @@ class CheckpointCfg(MonitoredMetricCfg):
 @Cfg.register_obj("training")
 class TrainingCfg(Cfg.Obj):
     max_epoch = Cfg.int()
-    minibatch = Cfg.int(None)
     gradient_clip = Cfg.int(0)
     gradient_clip_algorithm = Cfg.oneOf('value', 'norm', default='norm')
 
@@ -71,10 +70,6 @@ class TrainingCfg(Cfg.Obj):
         seed = self.seed
         pl.seed_everything(seed)
 
-    @property
-    def minibatch_size(self):
-        return math.ceil(self.minibatch / self.root().get('hardware.minibatch-splits', 1))
-
     def lightning_args(self):
         args = dict()
         if self.minibatch is None:
@@ -103,7 +98,7 @@ class TrainingCfg(Cfg.Obj):
 
         kwargs = dict(callbacks=callbacks, num_sanity_val_steps=2 if is_first_trial else 0,
                       max_epochs=max_epoch, check_val_every_n_epoch=check_val_every_n_epoch,
-                      log_every_n_steps=min(50, (datasets.train.sample_count()/self.minibatch_size)//3),
+                      log_every_n_steps=min(50, (datasets.train.sample_count()/datasets.minibatch_size)//3),
                       accumulate_grad_batches=hardware.minibatch_splits,
                       gradient_clip_val=self.gradient_clip, gradient_clip_algorithm=self.gradient_clip_algorithm,)
         if hardware.precision:

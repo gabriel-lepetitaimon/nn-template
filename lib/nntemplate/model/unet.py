@@ -104,8 +104,10 @@ class SimpleUnet(nn.Module):
         x_stages = []
         for stage in self.encoder:
             x = stage(x)
-            x_stages.append(x)
+            x_stages.append(self.dropout(x))
         x_stages.pop()
+
+        x = self.dropout(x)
 
         for stage, upsampling in zip(self.decoder, self.upsamplings):
             x = upsampling(x)

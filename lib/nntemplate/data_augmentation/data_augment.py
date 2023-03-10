@@ -88,7 +88,7 @@ class DataAugmentationCfg(Cfg.Obj):
             case 'vertical': da.flip_vertical()
 
         patch_shape = None
-        if self.random_crop.shape:
+        if self.random_crop and self.random_crop.shape:
             patch_shape = np.array(self.random_crop.shape)
             if self.rotation.enabled:
                 patch_shape = patch_shape*np.sqrt(2)

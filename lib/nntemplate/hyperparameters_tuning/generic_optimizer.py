@@ -1,5 +1,5 @@
 from __future__ import annotations
-from nn_template.config.cfg_dict import CfgDict, UNDEFINED
+from ..config.cfg_dict import CfgDict, UNDEFINED
 from typing import Dict
 import weakref
 

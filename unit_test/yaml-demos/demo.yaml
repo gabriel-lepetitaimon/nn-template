@@ -35,7 +35,8 @@ optuna:
 ###########################################################
 task:
     type: Segmentation2D
-    n-classes: binary
+    n-classes: 2
+    classes: 'Vessels'
 
     loss: cross-entropy #(eval?)
 
@@ -48,7 +49,13 @@ task:
 
         lr: ~optuna.float(1e-5,1e-2)
 
-    metrics: kappa, acc, confmat, iou, auroc
+    scheduler:
+        scheduler: cosine-annealing
+        t_initial: 10
+        cycle_decay: ~optuna.float(0.1, 1)
+        cycle_mult: ~optuna.float(1, 2)
+
+    metrics: kappa, acc, confmat, iou
 
 ###########################################################
 #                    ---   MODEL   ---                    #
@@ -66,7 +73,8 @@ model:
 ###########################################################
 training:
     minibatch: 8
-    gradient-clip: 2
+    gradient-clip: 0.5
+    gradient-clip-algorithm: value
     max-epoch: 30
     seed: 1234
 

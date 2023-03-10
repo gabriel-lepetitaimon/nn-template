@@ -1,11 +1,14 @@
 from __future__ import annotations
-from typing import Mapping, Dict, List, TypeVar, Generic, Iterable
+
+from copy import deepcopy
+from typing import Mapping, Dict, List, TypeVar, Generic, Iterable, Sized
 import os
 import weakref
 
 
 UNDEFINED = '__undefined__'
 UNSPECIFIED = '__unspecified__'
+EMPTY = '__empty__'
 HYPER_PARAMETER = '__hyper-parameter__'
 
 
@@ -98,7 +101,7 @@ class CursorCfgDict:
 
 class CfgDict(dict):
     @classmethod
-    def from_dict(cls, data, recursive=False, recursive_name=False, read_marks=False, **kwargs):
+    def from_dict(cls, data: Mapping[str, any]|Iterable[any], recursive=False, recursive_name=False, read_marks=False, **kwargs):
         """
         Cast a standard dictionary to a CfgDict.
 
@@ -112,10 +115,10 @@ class CfgDict(dict):
         """
         if data is None:
             return cls(**kwargs)
-        if isinstance(data, cls):
+        elif isinstance(data, cls):
             return data
-        if isinstance(data, dict):
-            from_dict_args = dict(recursive=recursive, recursive_name=recursive_name, read_marks=read_marks)
+        elif isinstance(data, dict):
+            from_dict_args = dict(recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
 
             r = cls(**kwargs)
             if isinstance(data, CfgDict):
@@ -144,15 +147,39 @@ class CfgDict(dict):
                         v = CfgDict.from_dict(v, **from_dict_args)
                 r[str(k)] = v
             return r
-        return data
+        elif isinstance(data, list):
+            return cls.from_list(data, recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
+        raise TypeError(f"Cannot cast {type(data)} to CfgDict.")
 
     @classmethod
-    def from_list(cls, data, recursive=False, recursive_name=False, read_marks=False, **kwargs):
+    def from_list(cls, data: List[any], recursive=False, recursive_name=False, read_marks=False, allow_empty=True, **kwargs):
+        if len(data) == 0:
+            return cls(**kwargs)
+
         marks_set = {'__mark__', '__child_marks__'} if read_marks else set()
-        if not all(isinstance(_, dict) and len(set(_.keys())-marks_set) == 1 for _ in data):
+        if read_marks and isinstance(data[-1], dict) and '__mark__' in data[-1]:
+            marks = data.pop(-1)
+        else:
+            marks = {}
+
+        if not all((isinstance(_, dict) and len(set(_.keys())-marks_set) == 1) or
+                   (allow_empty and isinstance(_, str)) for _ in data):
             return data
-        data = {list(_.keys())[0]: list(_.values())[0] for _ in data}
-        return cls.from_dict(data, recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
+
+        dict_data = {m: deepcopy(marks[m]) for m in marks_set if m in marks}
+        child_marks = dict_data.get('__child_marks__', None)
+        for i, d in enumerate(data):
+            if isinstance(d, dict):
+                k = next(iter(d.keys()))
+                v = next(iter(d.values()))
+            else:
+                k = d
+                v = EMPTY
+            dict_data[k] = v
+            if child_marks and k not in child_marks and i in child_marks:
+                child_marks[k] = child_marks.pop(i)
+
+        return cls.from_dict(dict_data, recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
 
     def __init__(self, data: Dict[str, any] = None, parent=None, mark=None, child_mark=None):
         super(CfgDict, self).__init__()
@@ -217,7 +244,7 @@ class CfgDict(dict):
     def to_dict(self, flatten_path=False, exportable=False):
         if exportable:
             def format_v(v):
-                from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter
+                from ..hyperparameters_tuning.generic_optimizer import HyperParameter
                 match v:
                     case HyperParameter(): return v.full_specifications
                     case _: return v
@@ -460,6 +487,7 @@ class CfgDict(dict):
         return d
 
     def update(self, __m: Dict[str, any], **kwargs: any) -> None:
+        assert isinstance(__m, Mapping), f'Error when parsing {self.fullname}: __m must be a Mapping, not {type(__m)}'
         __m.update(kwargs)
 
         if isinstance(__m, CfgDict):
@@ -609,6 +637,7 @@ class CfgCollection(CfgDict):
             mark = self.get_mark(key)
         except KeyError:
             mark = None
+
         value = self._to_obj_type(value, mark)
         return super(CfgCollection, self).__setitem__(key, value)
 
@@ -658,11 +687,12 @@ class CfgCollection(CfgDict):
             else:
                 try:
                     return obj_type(value)
-                except TypeError:
+                except Exception:
                     continue
 
         if len(obj_types) == 1:
-            raise ParseError(f"Item type {type(value).__name__} doesn't match Collection type {obj_types[0].__name__})", mark)
+            raise ParseError(f"Item type {type(value).__name__} doesn't match Collection type {obj_types[0].__name__})",
+                             mark)
         else:
             from .cfg_parser import format2str
             raise ParseError(f"Item type {type(value).__name__} doesn't match any Collection type "
@@ -679,8 +709,8 @@ class CfgCollectionRef:
 
 
 class CfgList(CfgCollection, Generic[T]):
-    def __init__(self, obj_types, id_key: str, type_key: str=None, data=None, parent=None):
-        self.id_key = id_key
+    def __init__(self, obj_types, shortcut_key: str, type_key: str=None, data=None, parent=None):
+        self.shortcut_key = shortcut_key
         super(CfgList, self).__init__(obj_types=obj_types, type_key=type_key, data=data, parent=parent)
 
     def __iter__(self) -> Iterable[T]:
@@ -691,16 +721,16 @@ class CfgList(CfgCollection, Generic[T]):
 
     def __setitem__(self, key, value):
         if not isinstance(value, (dict, CfgDict)):
-            value = CfgDict({self.id_key: value}, parent=self)
+            value = CfgDict({self.shortcut_key: value if value is not EMPTY else key}, parent=self)
             value.mark = self.child_mark.get(key, None)
             if value.mark is not None:
-                value.child_mark = {self.id_key: value.mark}
+                value.child_mark = {self.shortcut_key: value.mark}
         else:
             value = value.copy()
-            value[self.id_key] = key
+            value[self.shortcut_key] = key
             mark = self.child_mark.get(key, None)
             if mark is not None:
-                value.child_mark[self.id_key] = mark
+                value.child_mark[self.shortcut_key] = mark
         super(CfgList, self).__setitem__(key, value)
 
 

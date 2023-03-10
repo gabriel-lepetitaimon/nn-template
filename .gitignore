@@ -10,3 +10,4 @@ DATA/
 tmp/
 .directory
 /doc/
+*.egg-info/

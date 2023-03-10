@@ -4,7 +4,7 @@ from types import UnionType
 import weakref
 
 from .cfg_dict import CfgDict, CfgCollection, CfgList, UNDEFINED, UNSPECIFIED, HYPER_PARAMETER
-from nn_template.hyperparameters_tuning.generic_optimizer import HyperParameter
+from ..hyperparameters_tuning.generic_optimizer import HyperParameter
 
 
 class InvalidAttrDeclaration(Exception):
@@ -599,7 +599,7 @@ class ListAttr(CfgAttr):
 
 
 class ObjAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, shortcut: str=None, obj_types=None, nullable=None):
+    def __init__(self, default=UNDEFINED, shortcut: str = None, obj_types=None, nullable=None):
         """
 
         :param default:
@@ -646,8 +646,8 @@ class ObjAttr(CfgAttr):
 
         # Pre-Format value
         if not isinstance(value, CfgDict):
-            if isinstance(value, Mapping):
-                value = CfgDict(value, parent=cfg_dict)
+            if isinstance(value, (Mapping, list)):
+                value = CfgDict.from_dict(value, parent=cfg_dict)
             else:
                 if self.shortcut is None:
                     raise InvalidAttr(f"{str(value)} is invalid for attribute {self.fullname}")
@@ -698,7 +698,7 @@ class ObjListAttr(CfgAttr):
             data = [v.strip() for v in value.split(',') if v.strip()]
             value = CfgDict(data={d: d for d in data}, parent=cfg_dict,
                             mark=mark, child_mark={d: mark for d in data})
-        value = CfgList(data=value, obj_types=self.obj_types, id_key=self.id_key, type_key=self.type_key,
+        value = CfgList(data=value, obj_types=self.obj_types, shortcut_key=self.id_key, type_key=self.type_key,
                         parent=cfg_dict)
         return value
 
