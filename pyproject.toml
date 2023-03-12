@@ -5,8 +5,8 @@ version = '0.0.5'
 authors = [
     {name= 'Gabriel Lepetit-Aimon', email= 'gabriel.lepetit-aimon@polymtl.ca'},
 ]
-description = """Bundle of usefull tools for training segmentation or image classification neural networks.
-Including: configuration parser, log to wandb, hyper-parameter search with optuna, dataloader and data-augmentation..."""
+description = """A bundle of templated and configurable tools to train neural networks on image segmentation or classification."""
+readme = 'README.md'
 
 requires-python = '>=3.10'
 dependencies = [

@@ -11,8 +11,6 @@ from .datasets import DatasetsCfg
 from .experiment import ExperimentCfg
 
 
-
-
 class CheckpointCfg(MonitoredMetricCfg):
     metric = Cfg.str()
     mode = Cfg.oneOf('min', 'max', default='max')
@@ -84,13 +82,13 @@ class TrainingCfg(Cfg.Obj):
                     enable_progress_bar=hardware.debug,
                     fast_dev_run=10 if hardware.debug == 'fast' else None)
 
-    def create_trainer(self, callbacks, **trainer_kwargs) -> pl.Trainer:
+    def create_trainer(self, callbacks=(), **trainer_kwargs) -> pl.Trainer:
         hardware: HardwareCfg = self.root()['hardware']
         experiment: ExperimentCfg = self.root()['experiment']
         datasets: DatasetsCfg = self.root()['datasets']
 
         for name, checkpoint in self.checkpoints.items():
-            callbacks += [checkpoint.create()]
+            callbacks = callbacks + (checkpoint.create(),)
 
         max_epoch = 2 if hardware.debug else self.max_epoch
         check_val_every_n_epoch = 1 if hardware.debug else self.validate_every_n_epoch
@@ -107,7 +105,7 @@ class TrainingCfg(Cfg.Obj):
         trainer = pl.Trainer(** self._hardware_args() | kwargs | trainer_kwargs)
         return trainer
 
-    def create_tester(self, callbacks, **tester_kwargs) -> pl.Trainer:
+    def create_tester(self, callbacks=(), **tester_kwargs) -> pl.Trainer:
         kwargs = dict(callbacks=callbacks,)
 
         tester = pl.Trainer(**self._hardware_args() | kwargs | tester_kwargs)

@@ -80,7 +80,9 @@ class Segmentation2DCfg(LightningTaskCfg):
         raise Cfg.InvalidAttr(f"Invalid number of classes names for {value}-fold classification",
                               f'Either change "classes" to a list of {value} names, or set n-classes: {n_classes}')
 
-    def create_net(self, model: nn.Module):
+    def create_lightning_task(self, model: nn.Module | None = None) -> LightningTask:
+        if model is None:
+            model = self.root()['model'].create()
         return Segmentation2D(self, model=model)
 
     @property

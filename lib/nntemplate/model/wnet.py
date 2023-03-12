@@ -11,7 +11,9 @@ from ..task.losses import Loss
 class WNetCfg(SimpleUnetCfg):
     auxilary_loss = Cfg.oneOf(Cfg.float(), Cfg.bool(), default=1)
 
-    def create(self, in_channels: int):
+    def create(self, in_channels: int = None):
+        if in_channels is None:
+            in_channels = self.root()['datasets'].n_in_channels
         return WNet(self, in_channels)
 
     def create_unet(self, in_channels: int):

@@ -60,7 +60,9 @@ class SimpleUnetCfg(Cfg.Obj):
             return math.ceil(self.kernel / 2)
         return p
 
-    def create(self, in_channels: int):
+    def create(self, in_channels: int = None):
+        if in_channels is None:
+            in_channels = self.root()['datasets'].n_in_channels
         return SimpleUnet(self, in_channels)
 
 

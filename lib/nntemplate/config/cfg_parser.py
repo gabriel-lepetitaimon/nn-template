@@ -72,6 +72,27 @@ def format2str(v):
             return str(v)
 
 
+def parse(cfg_path: str, override: dict | None = None):
+    """
+    Parse a configuration file and return a CfgParser object.
+    Equivalent to ```CfgParser(cfg_path, override=override).parse()```.
+
+    Examples:
+        >>> for cfg in parse('exp.yaml'):
+        >>>     cfg: CfgDict
+        >>>     ...
+
+
+    Args:
+        cfg_path: File path to the configuration file.
+        override: A dictionary of configuration values to override the values in the configuration file.
+
+    Returns: The corresponding CfgParser object.
+
+    """
+    return CfgParser(cfg_path, override=override).parse()
+
+
 class CfgParser:
     def __init__(self, cfg_path, override: dict | None = None, verbose_exception=False):
         self.path: str = cfg_path

@@ -3,7 +3,7 @@ from . import cfg_parser
 from . import cfg_dict
 
 from .cfg_dict import CfgDict, UNDEFINED
-from .cfg_parser import CfgParser, CfgFile, register_obj
+from .cfg_parser import CfgParser, CfgFile, register_obj, parse
 
 
 class Cfg:
@@ -35,3 +35,4 @@ class Cfg:
 
     register_obj = cfg_parser.register_obj
     Parser = cfg_parser.CfgParser
+    parse = cfg_parser.parse

@@ -32,7 +32,7 @@ def run_train(cfg: CfgDict):
     cmap_vessel = {(0, 0): '#edf6f9', (1, 1): '#83c5be', (1, 0): '#e29578', (0, 1): '#006d77', 'default': 'lightgray'}
 
     # --- Setup logs ---
-    with experiment_cfg.wandb.init_logs() as wandb_log:
+    with experiment_cfg.wandb.log_run() as wandb_log:
 
         # --- Setup seed ---
         training_cfg.configure_seed()
@@ -56,7 +56,7 @@ def run_train(cfg: CfgDict):
             callbacks += optuna_cfg.pl_callbacks()
             callbacks += [Export2DLabel(cmap_vessel, every_n_epoch=10)]
             trainer = training_cfg.create_trainer(callbacks)
-            net = task_cfg.create_net(model)
+            net = task_cfg.create_lightning_task(model)
 
         trainer.fit(net, train_data, val_data)
 

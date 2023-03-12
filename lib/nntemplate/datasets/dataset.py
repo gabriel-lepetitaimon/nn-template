@@ -187,6 +187,10 @@ class DatasetsCfg(Cfg.Obj):
     def minibatch_size(self):
         return math.ceil(self.minibatch / self.root().get('hardware.minibatch-splits', 1)) if self.minibatch else None
 
+    @property
+    def n_in_channels(self):
+        return self.train.dataset()[0].shape[0]
+
     def create_train_val_dataloaders(self):
         batch_size = self.minibatch_size
         num_workers = self.root().get('hardware.num_workers', os.cpu_count())

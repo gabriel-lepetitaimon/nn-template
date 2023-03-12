@@ -29,7 +29,7 @@ class WandBCfg(Cfg.Obj):
         context = getattr(self, '_wandb_log_context', None)
         return context.logger if context is not None else None
 
-    def init_logs(self, resume="never"):
+    def log_run(self, resume="never"):
         self.api = wandb.Api()
         wandb_init_args = dict(resume=resume, reinit=True)
         return WandBLogContext(self, wandb_init_args)
