@@ -1,0 +1,32 @@
+[project]
+
+name = "nntemplate"
+version = '0.0.5'
+authors = [
+    {name= 'Gabriel Lepetit-Aimon', email= 'gabriel.lepetit-aimon@polymtl.ca'},
+]
+description = """Bundle of usefull tools for training segmentation or image classification neural networks.
+Including: configuration parser, log to wandb, hyper-parameter search with optuna, dataloader and data-augmentation..."""
+
+requires-python = '>=3.10'
+dependencies = [
+    'albumentations',
+    'numpy',
+    'opencv-python-headless',
+    'optuna',
+    'parse',
+    'pandas',
+    'pytorch-lightning',
+    'pyyaml',
+    'segmentation-models-pytorch',
+    'torch',
+    'torchgeometry',
+    'torchmetrics',
+    'torchvision',
+    'ttach',
+    'webcolors',
+    'wandb',
+]
+
+[project.urls]
+Source = 'https://github.com/gabriel-lepetitaimon/nn-template'
