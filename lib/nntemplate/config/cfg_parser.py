@@ -290,6 +290,13 @@ class CfgFile:
         self.versions = None
         self._parser = weakref.ref(parser)
 
+    def __getstate__(self):
+        return self.path, self.base, self.inherit, self.versions
+
+    def __setstate__(self, state):
+        self.path, self.base, self.inherit, self.versions = state
+        self._parser = None
+
     @property
     def parser(self) -> CfgParser:
         return self._parser()

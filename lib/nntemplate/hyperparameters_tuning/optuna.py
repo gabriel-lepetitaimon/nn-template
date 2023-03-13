@@ -9,7 +9,7 @@ from ..config import Cfg
 from ..config.cfg_parser import ParseError
 from ..hyperparameters_tuning.generic_optimizer import HyperParameter, HyperParametersOptimizerEngine, \
     register_hp_optimizer_engine
-from ..training import TrainingCfg, check_metric_name, MonitoredMetricCfg
+from ..training import TrainingCfg, MonitoredMetricCfg
 from ..hardware import HardwareCfg
 from ..callbacks.optuna import PyTorchLightningPruningCallback
 
@@ -101,8 +101,8 @@ class OptunaCfg(Cfg.Obj):
     max_retry = 3
 
     def init_after_populate(self):
-        self._engine = OptunaEngine(self.root())
-        self._engine.discover_hyperparameters()
+        self._engine = OptunaEngine()
+        self._engine.discover_hyperparameters(self.root())
 
     class TrialContext:
         def __init__(self, optuna_cfg, max_retry):
@@ -259,7 +259,7 @@ class OptunaCfg(Cfg.Obj):
         self._trial = trial
         self.root()['experiment.run_id'] = trial.number
         if suggest:
-            self.engine.suggest(trial)
+            self.engine.suggest(trial, self.root())
         return trial
 
     def optimize(self, func, *args, **kwargs):
@@ -272,7 +272,7 @@ class OptunaCfg(Cfg.Obj):
         def run_trial(trial):
             self._trial = trial
             self.root()['experiment.trial_id'] = self.valid_trials_count()
-            self.engine.suggest(trial)
+            self.engine.suggest(trial, self.root())
 
             try:
                 opti_value = func(*args, **kwargs)
@@ -302,7 +302,7 @@ class OptunaCfg(Cfg.Obj):
             self.study.tell(previous_trial, state=optuna.trial.TrialState.FAIL)
 
         self._trial = trial
-        self.engine.force_hyperparameters_value(self.trial.params, merge=merge)
+        self.engine.force_hyperparameters_value(self.trial.params, merge=merge, cfg=self.root())
 
     def load_trial(self, id=None, merge=False) -> optuna.trial.BaseTrial:
         if self.trial is not None and self.trial.number == id:
@@ -360,7 +360,7 @@ class OptunaCfg(Cfg.Obj):
             self._trial = None
 
     def clear_trial(self):
-        self.engine.clear_suggestion()
+        self.engine.clear_suggestion(self.root())
         self._trial = None
 
     def hyper_parameters(self):
@@ -376,16 +376,16 @@ class OptunaCfg(Cfg.Obj):
 
 @register_hp_optimizer_engine
 class OptunaEngine(HyperParametersOptimizerEngine):
-    def __init__(self, cfg: Cfg.Dict):
-        super(OptunaEngine, self).__init__(cfg)
+    def __init__(self):
+        super(OptunaEngine, self).__init__()
 
     def create_hyperparameter(self, name, parent, specification, mark) -> HyperParameter:
         return OptunaHP(name, parent, specification, self, mark)
 
-    def suggest(self, trial: optuna.trial.Trial):
+    def suggest(self, trial: optuna.trial.Trial, cfg: Cfg.Dict):
         for hp in self.hyper_parameters.values():
             hp.suggest(trial)
-        self.apply_suggestion()
+        self.apply_suggestion(cfg)
 
     @classmethod
     def engine_name(cls):

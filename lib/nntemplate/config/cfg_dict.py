@@ -197,6 +197,14 @@ class CfgDict(dict):
         if data is not None:
             self.update(data)
 
+    def __getstate__(self):
+        return dict(self), self.mark, self.child_mark, self._name
+
+    def __setstate__(self, state):
+        data, self.mark, self.child_mark, self._name = state
+        self._parent = None
+        self.update(data)
+
     @property
     def parent(self):
         return None if self._parent is None else self._parent()
@@ -748,7 +756,7 @@ class CfgVersion:
 
 
 class Mark:
-    def __init__(self, field_id: str, line: int, col: int, file, parser, version=None):
+    def __init__(self, field_id: str, line: int, col: int, file, parser=None, version=None):
         from .cfg_parser import CfgFile
 
         self.field_id = field_id
@@ -756,7 +764,14 @@ class Mark:
         self.col = col
         self.file = file if isinstance(file, CfgFile) else CfgFile(file, parser)
         self.version = version
-        self._parser = weakref.ref(parser)
+        self._parser = weakref.ref(parser) if parser else None
+
+    def __getstate__(self):
+        return self.field_id, self.line, self.col, self.file, self.version
+
+    def __setstate__(self, state):
+        self.field_id, self.line, self.col, self.file, self.version = state
+        self._parser = None
 
     def update(self, other_mark):
         self.field_id = other_mark.field_id
