@@ -30,15 +30,15 @@ class DataLoader(Cfg.Obj):
     @property
     def dir_prefix(self):
         dir = ''
-        for r in self.roots():
+        for r in reversed(self.roots()):
             if r.get('dir-prefix', None) is not None:
                 prefix = r['dir-prefix']
                 if not dir:
                     prefix = P.abspath(prefix)
                 if not P.exists(dir+prefix) and P.exists(P.join(dir, prefix)):
-                    dir = P.join(dir, r['dir-prefix'])
+                    dir = P.join(dir, prefix)
                 else:
-                    dir += r['dir-prefix']
+                    dir += prefix
         return dir if dir else './'
 
     def source_name(self):
