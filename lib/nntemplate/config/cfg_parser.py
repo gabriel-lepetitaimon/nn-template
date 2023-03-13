@@ -283,23 +283,24 @@ class CfgFile:
     Represent and parse an actual yaml of json file containing configuration information.
     Apart from the file base data, it stores all the versions of this file and links to inherited CfgFiles.
     """
-    def __init__(self, path: str, parser: CfgParser):
+    def __init__(self, path: str, parser: CfgParser|None = None):
         self.path = path
         self.base = None
         self.inherit = None
         self.versions = None
-        self._parser = weakref.ref(parser)
+        self._parser = weakref.ref(parser)  if parser is not None else None
 
     def __getstate__(self):
         return self.path, self.base, self.inherit, self.versions
 
     def __setstate__(self, state):
         self.path, self.base, self.inherit, self.versions = state
-        self._parser = None
+        if not hasattr(self, '_parser'):
+            self._parser = None
 
     @property
-    def parser(self) -> CfgParser:
-        return self._parser()
+    def parser(self) -> CfgParser | None:
+        return self._parser() if self._parser is not None else None
 
     def __repr__(self):
         return f"CfgFile(path={self.path})"
@@ -508,15 +509,15 @@ def merge_versions_bases(inherited_versions, inherited_base, new_versions, new_b
 
 
 class CfgYamlLoader(SafeLoader):
-    def __init__(self, stream: any, file: CfgFile, parser: CfgParser):
+    def __init__(self, stream: any, file: CfgFile, parser: CfgParser | None = None):
         super(CfgYamlLoader, self).__init__(stream=stream)
         self.file = file
         self.inherit = []
-        self._parser = weakref.ref(parser)
+        self._parser = weakref.ref(parser) if parser else None
 
     @property
-    def parser(self) -> CfgParser:
-        return self._parser()
+    def parser(self) -> CfgParser | None:
+        return self._parser() if self._parser else None
 
     def construct_mapping(self, node, deep=False):
         mapping = super(CfgYamlLoader, self).construct_mapping(node, deep=deep)

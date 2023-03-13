@@ -788,7 +788,8 @@ class Mark:
 
     def __setstate__(self, state):
         self.field_id, self.line, self.col, self.file, self.version = state
-        self._parser = None
+        if not hasattr(self, '_parser'):
+            self._parser = None
 
     def update(self, other_mark):
         self.field_id = other_mark.field_id
@@ -818,7 +819,7 @@ class Mark:
 
     @property
     def parser(self):
-        return self._parser()
+        return self._parser() if self._parser else None
 
     def exception_like_description(self):
         exp_str = f'File "{self.fullpath}", line {self.line}'

@@ -29,6 +29,7 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = 'https://github.com/gabriel-lepetitaimon/nn-template'
 Source = 'https://github.com/gabriel-lepetitaimon/nn-template'
 
 
