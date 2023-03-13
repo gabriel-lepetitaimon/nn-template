@@ -55,7 +55,7 @@ class HyperParametersOptimizerEngine:
             if isinstance(cursor.value, str) and cursor.value.startswith('~'+self.engine_name()):
                 hp = self.create_hyperparameter(cursor.name, cursor.parent, cursor.value, cursor.mark)
                 self.hyper_parameters[hp.fullname] = hp
-            self.clear_suggestion()
+            self.clear_suggestion(cfg)
 
     @classmethod
     def engine_name(cls):

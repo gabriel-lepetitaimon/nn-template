@@ -202,7 +202,8 @@ class CfgDict(dict):
 
     def __setstate__(self, state):
         data, self.mark, self.child_mark, self._name = state
-        self._parent = None
+        if not hasattr(self, '_parent'):
+            self._parent = None
         self.update(data)
 
     @property
@@ -573,7 +574,9 @@ class CfgDict(dict):
 
     def copy(self):
         from copy import deepcopy
-        return deepcopy(self)
+        other = deepcopy(self)
+        other._parent = weakref.ref(self.parent) if self._parent else None
+        return other
 
     def subset(self, items):
         from copy import deepcopy
@@ -639,6 +642,13 @@ class CfgCollection(CfgDict):
             self._obj_types = obj_types
 
         super(CfgCollection, self).__init__(data, parent=parent)
+
+    def __getstate__(self):
+        return self._default_key, self.type_key, self._obj_types, super().__getstate__()
+
+    def __setstate__(self, state):
+        self._default_key, self.type_key, self._obj_types, super_state = state
+        super().__setstate__(super_state)
 
     def __setitem__(self, key, value):
         try:
@@ -720,6 +730,13 @@ class CfgList(CfgCollection, Generic[T]):
     def __init__(self, obj_types, shortcut_key: str, type_key: str=None, data=None, parent=None):
         self.shortcut_key = shortcut_key
         super(CfgList, self).__init__(obj_types=obj_types, type_key=type_key, data=data, parent=parent)
+
+    def __getstate__(self):
+        return self.shortcut_key, super().__getstate__()
+
+    def __setstate__(self, state):
+        self.shortcut_key, super_state = state
+        super().__setstate__(super_state)
 
     def __iter__(self) -> Iterable[T]:
         return iter(self.values())

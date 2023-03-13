@@ -232,6 +232,14 @@ class CfgObj(CfgDict, metaclass=MetaCfgObj):
         if data:
             self.update(data)
 
+    def __getstate__(self):
+        return self._attr_values, super().__getstate__()
+
+    def __setstate__(self, state):
+        _attr_values, super_state = state
+        super().__setstate__(super_state)
+        self._attr_values = _attr_values
+
     def _after_populate(self):
         pass
 
@@ -772,7 +780,7 @@ class RefAttr(CfgAttr):
                 collection = cfg_dict.root()[self.collection_path]
         except KeyError:
             raise InvalidAttrDeclaration(f'Impossible to build the reference attribute {self.fullname}:\n '
-                                   f'Unknown path "{self.collection_path}".')
+                                         f'Unknown path "{self.collection_path}".')
         return collection
 
     def valid_refs(self, cfg_dict: CfgDict | None = None):
