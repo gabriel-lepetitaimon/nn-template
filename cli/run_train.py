@@ -55,7 +55,7 @@ def run_train(cfg: CfgDict):
         with LogTimer('Setup Trainer', log=hardware_cfg.debug):
             callbacks += optuna_cfg.pl_callbacks()
             callbacks += [Export2DLabel(cmap_vessel, every_n_epoch=10)]
-            trainer = training_cfg.create_trainer(callbacks)
+            trainer = training_cfg.create_trainer(callbacks, logger=wandb_log)
             net = task_cfg.create_lightning_task(model)
 
         trainer.fit(net, train_data, val_data)
@@ -69,7 +69,7 @@ def run_train(cfg: CfgDict):
         with LogTimer('Setup Tester', log=hardware_cfg.debug):
             callbacks = [Export2DLabel(cmap_vessel, dataset_names=net.test_dataloaders_names)]
 
-            tester = training_cfg.create_tester(callbacks=callbacks)
+            tester = training_cfg.create_tester(callbacks=callbacks, logger=wandb_log)
             test_data = datasets_cfg.create_test_dataloaders()
 
         tester.test(net, test_data, ckpt_path=training_cfg.objective_best_ckpt_path)

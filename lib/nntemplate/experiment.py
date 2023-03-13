@@ -24,28 +24,41 @@ class WandBCfg(Cfg.Obj):
     watch: WandBWatchCfg = Cfg.obj(shortcut='log', default=False)
     log_model = Cfg.oneOf(True, False, 'all', default=True)
 
-    @property
-    def logger(self) -> WandbLogger | None:
-        context = getattr(self, '_wandb_log_context', None)
-        return context.logger if context is not None else None
-
     def log_run(self, resume="never"):
-        self.api = wandb.Api()
         wandb_init_args = dict(resume=resume, reinit=True)
         return WandBLogContext(self, wandb_init_args)
 
     def pl_callbacks(self) -> list[pl.Callback]:
         return [LogCallback(self)]
 
+
+class LogCallback(pl.Callback):
+    def __init__(self, cfg: WandBCfg):
+        self.cfg = cfg
+
+    def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
+        if self.cfg.watch.log:
+            self.cfg.logger.watch(pl_module, log=self.cfg.watch.log, log_freq=self.cfg.watch.log_freq,
+                                  log_graph=self.cfg.watch.log_graph)
+
+
+class WandBLogContext:
+    def __init__(self, cfg: WandBCfg, wandb_init_kwargs=None):
+        self.cfg = cfg
+        self.wandb_init_kwargs = {} if wandb_init_kwargs is None else wandb_init_kwargs
+        self.api = wandb.Api()
+        self.logger = None
+
     def setup_logs(self, wandb_init_kwargs) -> WandbLogger:
         from .hardware import HardwareCfg
         from .hyperparameters_tuning.optuna import OptunaCfg
 
-        experiment: ExperimentCfg = self.root()['experiment']
-        hardware: HardwareCfg = self.root()['hardware']
+        cfg = self.cfg
+        experiment: ExperimentCfg = cfg.root()['experiment']
+        hardware: HardwareCfg = cfg.root()['hardware']
 
         # Fix run_id
-        versions = [v for v in self.root().current_versions() if 'experiment.name' not in v.versions]
+        versions = [v for v in cfg.root().current_versions() if 'experiment.name' not in v.versions]
         if len(versions):
             ids = (v.version_id for v in versions)
             strides = np.cumprod([1] + [len(v.versions) for v in versions])
@@ -61,12 +74,12 @@ class WandBCfg(Cfg.Obj):
         logger = WandbLogger(name=experiment.run_name,
                              project=project,
                              tags=experiment.tags,
-                             config=top_config | self.root().to_dict(exportable=True),
-                             group=self.group,
-                             job_type=self.job_type,
-                             entity=self.entity,
-                             save_dir=self.dir,
-                             notes=self.notes,
+                             config=top_config | cfg.root().to_dict(exportable=True),
+                             group=cfg.group,
+                             job_type=cfg.job_type,
+                             entity=cfg.entity,
+                             save_dir=cfg.dir,
+                             notes=cfg.notes,
                              log_model=False,   # Model are logged manually at the end of training
                              settings=settings,
                              **wandb_init_kwargs
@@ -91,8 +104,8 @@ class WandBCfg(Cfg.Obj):
                 job_artifact.metadata['exp_hash'] = experiment.experiment_hash
 
                 # Log configuration files
-                if self.root().mark:
-                    parser: Cfg.Parser = self.root().mark.parser
+                if cfg.root().mark:
+                    parser: Cfg.Parser = cfg.root().mark.parser
                     if parser:
                         job_artifact.add_file(parser.files[0].path, 'main.yaml')
                         for cfg_file in parser.files[1:]:
@@ -106,7 +119,7 @@ class WandBCfg(Cfg.Obj):
                 run_artifact = wandb.Artifact(run_art_name, type='hyper-parameters')
 
                 # Log hyperparameters value
-                optuna_cfg: OptunaCfg = self.root().get('optuna', None)
+                optuna_cfg: OptunaCfg = cfg.root().get('optuna', None)
                 if isinstance(optuna_cfg, OptunaCfg):
                     with tempfile.NamedTemporaryFile('w+') as fp:
                         hps = optuna_cfg.hyper_parameters().copy()
@@ -115,19 +128,19 @@ class WandBCfg(Cfg.Obj):
                         hps.to_yaml(fp)
                         run_artifact.add_file(fp.name, 'hyper-parameters.yaml')
                     with tempfile.NamedTemporaryFile('w+') as fp:
-                        self.root().to_yaml(fp)
+                        cfg.root().to_yaml(fp)
                         run_artifact.add_file(fp.name, 'run_config.yaml')
                 logger._experiment.use_artifact(run_artifact)
 
         return logger
 
     def save_logs(self):
-
-        if self.log_model:
+        cfg = self.cfg
+        if cfg.log_model:
             # Save models
             from .training import TrainingCfg
-            training_cfg: TrainingCfg = self.root()['training']
-            experiment: ExperimentCfg = self.root()['experiment']
+            training_cfg: TrainingCfg = cfg.root()['training']
+            experiment: ExperimentCfg = cfg.root()['experiment']
             model_art_name = experiment.name.replace(' ', '_')+'.models'
             model_art = wandb.Artifact(model_art_name, type='model')
 
@@ -147,28 +160,11 @@ class WandBCfg(Cfg.Obj):
 
             self.logger.experiment.log_artifact(model_art, aliases=alias)
 
-
-class LogCallback(pl.Callback):
-    def __init__(self, cfg: WandBCfg):
-        self.cfg = cfg
-
-    def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule):
-        if self.cfg.watch.log:
-            self.cfg.logger.watch(pl_module, log=self.cfg.watch.log, log_freq=self.cfg.watch.log_freq,
-                                  log_graph=self.cfg.watch.log_graph)
-
-
-class WandBLogContext:
-    def __init__(self, cfg: WandBCfg, wandb_init_kwargs=None):
-        self.cfg = cfg
-        self.wandb_init_kwargs = {} if wandb_init_kwargs is None else wandb_init_kwargs
-        self.logger = None
-
-    def __enter__(self):
+    def __enter__(self) -> WandbLogger:
         from .hyperparameters_tuning.optuna import OptunaCfg
         experiment: ExperimentCfg = self.cfg.root()['experiment']
 
-        self.logger = self.cfg.setup_logs(self.wandb_init_kwargs)
+        self.logger = self.setup_logs(self.wandb_init_kwargs)
 
         print(f"========== STARTING RUN: {experiment.run_name} =============")
         optuna_cfg: OptunaCfg = self.cfg.root().get('optuna', None)
@@ -176,7 +172,6 @@ class WandBLogContext:
             print('\t *** Hyper-Parameters ***')
             print('\t' + optuna_cfg.hyper_parameters().to_yaml().replace('\n', '\n\t'))
 
-        self.cfg._wandb_log_context = self
         return self.logger
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -191,12 +186,10 @@ class WandBLogContext:
             exit_code = 10
         else:
             print(" ========= RUN SUCCESS ===========")
-            self.cfg.save_logs()
+            self.save_logs()
             self.logger.finalize(status="success")
             exit_code = 0
         wandb.finish(exit_code)
-
-        self.cfg._wandb_log_context = None
 
 
 @Cfg.register_obj('experiment')

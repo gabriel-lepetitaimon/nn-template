@@ -77,12 +77,12 @@ class TrainingCfg(Cfg.Obj):
     def _hardware_args(self):
         hardware: HardwareCfg = self.root()['hardware']
         experiment: ExperimentCfg = self.root()['experiment']
-        return dict(gpus=hardware.gpus, logger=experiment.wandb.logger,
+        return dict(gpus=hardware.gpus,
                     accelerator='gpu',
                     enable_progress_bar=hardware.debug,
                     fast_dev_run=10 if hardware.debug == 'fast' else None)
 
-    def create_trainer(self, callbacks=None, **trainer_kwargs) -> pl.Trainer:
+    def create_trainer(self, callbacks=None, logger=None, **trainer_kwargs) -> pl.Trainer:
         hardware: HardwareCfg = self.root()['hardware']
         experiment: ExperimentCfg = self.root()['experiment']
         datasets: DatasetsCfg = self.root()['datasets']
@@ -97,6 +97,7 @@ class TrainingCfg(Cfg.Obj):
         is_first_trial = experiment.trial_id is None or experiment.trial_id <= 1
 
         kwargs = dict(callbacks=callbacks, num_sanity_val_steps=2 if is_first_trial else 0,
+                      logger=logger,
                       max_epochs=max_epoch, check_val_every_n_epoch=check_val_every_n_epoch,
                       log_every_n_steps=min(50, (datasets.train.sample_count()/datasets.minibatch_size)//3),
                       accumulate_grad_batches=hardware.minibatch_splits,
@@ -107,8 +108,8 @@ class TrainingCfg(Cfg.Obj):
         trainer = pl.Trainer(** self._hardware_args() | kwargs | trainer_kwargs)
         return trainer
 
-    def create_tester(self, callbacks=(), **tester_kwargs) -> pl.Trainer:
-        kwargs = dict(callbacks=callbacks,)
+    def create_tester(self, callbacks=(), logger=None, **tester_kwargs) -> pl.Trainer:
+        kwargs = dict(callbacks=callbacks, logger=logger)
 
         tester = pl.Trainer(**self._hardware_args() | kwargs | tester_kwargs)
         return tester
