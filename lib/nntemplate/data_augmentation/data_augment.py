@@ -273,7 +273,22 @@ class DataAugment:
             fields_f = self.compile_stack(rng_states=rng_states_def, border_mode=cv2.BORDER_REPLICATE,
                                           except_type={'color'}, value_type='vec')
 
-        def augment(rng=rng, **kwargs):
+        closure = (rng_states_def, transpose_input, images, labels, angles, vectors,
+                   images_f, labels_f, angles_f, fields_f, to_torch, rng)
+
+        return DataAugment.CompiledAugmentation(closure)
+
+    class CompiledAugmentation:
+        def __init__(self, closure):
+            self.closure = closure
+
+        def __call__(self, rng=None, **kwargs):
+            (rng_states_def, transpose_input, images, labels, angles, vectors,
+             images_f, labels_f, angles_f, fields_f, to_torch, default_rng) = self.closure
+
+            if rng is None:
+                rng = default_rng
+
             rng_states = [[s(rng) for s in states.values()] for states in rng_states_def]
 
             data = copy(kwargs)
@@ -285,10 +300,10 @@ class DataAugment:
                 data[image] = images_f(data[image], rng_states)
 
             if labels:
-                mixed_label = sum(data[label]*(4**i) for i, label in enumerate(labels))
+                mixed_label = sum(data[label] * (4 ** i) for i, label in enumerate(labels))
                 mixed_label = labels_f(mixed_label, rng_states)
                 for i, label in enumerate(labels):
-                    data[label] = (mixed_label//(4**i)) % 4
+                    data[label] = (mixed_label // (4 ** i)) % 4
 
             for angle in angles:
                 data[angle] = angles_f(data[angle], rng_states)
@@ -300,8 +315,6 @@ class DataAugment:
                 return {k: to_tensor(v) for k, v in data.items()}
 
             return data
-
-        return augment
 
     @staticmethod
     def augmentable_data_types():

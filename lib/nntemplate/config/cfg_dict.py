@@ -101,14 +101,12 @@ class CursorCfgDict:
 
 class CfgDict(dict):
     @classmethod
-    def from_dict(cls, data: Mapping[str, any]|Iterable[any], recursive=False, recursive_name=False, read_marks=False, **kwargs):
+    def from_dict(cls, data: Mapping[str, any]|Iterable[any], recursive=False, read_marks=False, **kwargs):
         """
         Cast a standard dictionary to a CfgDict.
 
         :param data: The dictionary to cast.
         :param recursive: If true any dictionary contained in data will be cast as well.
-        :param recursive_name: If true name containing '.' will be interpreted as dictionaries of dictionaries.
-            (Exemple: {'parent.child': 0} will be interpreted as {'parent': {'child': 0}}.)
         :param read_marks:
         :param kwargs:
         :return:
@@ -118,7 +116,7 @@ class CfgDict(dict):
         elif isinstance(data, cls):
             return data
         elif isinstance(data, dict):
-            from_dict_args = dict(recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
+            from_dict_args = dict(recursive=recursive, read_marks=read_marks, **kwargs)
 
             r = cls(**kwargs)
             if isinstance(data, CfgDict):
@@ -134,10 +132,6 @@ class CfgDict(dict):
                     elif k == '__child_marks__':
                         r.child_mark = v
                         continue
-                if recursive_name:
-                    if '.' in k:
-                        k, child = k.split('.', 1)
-                        v = CfgDict.from_dict({child: v}, **from_dict_args)
                 if recursive:
                     if isinstance(v, list):
                         v = CfgDict.from_list(v, **from_dict_args)
@@ -148,11 +142,11 @@ class CfgDict(dict):
                 r[str(k)] = v
             return r
         elif isinstance(data, list):
-            return cls.from_list(data, recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
+            return cls.from_list(data, recursive=recursive, read_marks=read_marks, **kwargs)
         raise TypeError(f"Cannot cast {type(data)} to CfgDict.")
 
     @classmethod
-    def from_list(cls, data: List[any], recursive=False, recursive_name=False, read_marks=False, allow_empty=True, **kwargs):
+    def from_list(cls, data: List[any], recursive=False, read_marks=False, allow_empty=True, **kwargs):
         if len(data) == 0:
             return cls(**kwargs)
 
@@ -179,7 +173,7 @@ class CfgDict(dict):
             if child_marks and k not in child_marks and i in child_marks:
                 child_marks[k] = child_marks.pop(i)
 
-        return cls.from_dict(dict_data, recursive=recursive, recursive_name=recursive_name, read_marks=read_marks, **kwargs)
+        return cls.from_dict(dict_data, recursive=recursive, read_marks=read_marks, **kwargs)
 
     def __init__(self, data: Dict[str, any] = None, parent=None, mark=None, child_mark=None):
         super(CfgDict, self).__init__()

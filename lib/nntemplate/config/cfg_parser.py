@@ -99,7 +99,7 @@ class CfgParser:
         self.files: list[CfgFile] = []
         self.base: CfgDict | None = None
         self.versions: list[CfgDict] | None = None
-        self.override: CfgDict = CfgDict.from_dict(override, recursive=True, recursive_name=True)
+        self.override: CfgDict = CfgDict.from_dict(override, recursive=True)
         self.verbose_exception: bool = verbose_exception
 
     Error = ParseError
@@ -365,7 +365,7 @@ class CfgFile:
         for c in cfg_dict.walk_cursor():
             if c.name.endswith('@') and isinstance(c.value, list) and len(c.value):
                 fullname = c.fullname[:-1]
-                versions = [CfgDict.from_dict({fullname: v}, recursive_name=True)
+                versions = [CfgDict.from_dict({fullname: v})
                             for v in c.value]
                 if c.mark:
                     for i, v in enumerate(versions):
