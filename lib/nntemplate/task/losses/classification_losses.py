@@ -15,9 +15,9 @@ class CrossEntropyLoss(LossCfg):
                 loss = BCELoss()
         else:
             loss = CELoss()
+        self._loss_fn = loss
+        return self._compute_loss
 
-        def compute_loss(pred, target, mask):
-            pred, target = select_pixels_by_mask(pred, target, mask=mask)
-            return loss(pred, target)
-
-        return compute_loss
+    def _compute_loss(self, pred, target, mask):
+        pred, target = select_pixels_by_mask(pred, target, mask=mask)
+        return self._loss_fn(pred, target)
