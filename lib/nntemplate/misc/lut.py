@@ -1,8 +1,9 @@
+import numpy as np
+
 
 def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=None, keep_dims=True, bgr=True):
     assert isinstance(lut_map, dict) and len(lut_map)
 
-    import numpy as np
     if default is not None:
         lut_map['default'] = default
         default = None
@@ -108,77 +109,90 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
         stride = 1
         mins = 0
 
-    def f_lut(array):
-        if len(axis) > 1 and axis != np.arange(len(axis)):
-            array = np.moveaxis(array, source=axis, destination=np.arange(len(axis)))
-        elif add_empty_axis:
+    return LutMap(axis, add_empty_axis, n_axis, source_shape, source_size, sampling, maxs, mins, stride,
+                  lut_sources, sources, lut_dests, dest_shape, dest_axis, keep_dims)
+
+
+class LutMap:
+    def __init__(self, axis, add_empty_axis, n_axis, source_shape, source_size, sampling, maxs, mins, stride,
+                 lut_sources, sources, lut_dests, dest_shape, dest_axis, keep_dims):
+        self.axis = axis
+        self.add_empty_axis = add_empty_axis
+        self.n_axis = n_axis
+        self.source_shape = source_shape
+        self.source_size = source_size
+        self.sampling = sampling
+        self.maxs = maxs
+        self.mins = mins
+        self.stride = stride
+        self.lut_sources = lut_sources
+        self.sources = sources
+        self.lut_dests = lut_dests
+        self.dest_shape = dest_shape
+        self.dest_axis = dest_axis
+        self.keep_dims = keep_dims
+
+    def __call__(self, array):
+        if len(self.axis) > 1 and self.axis != np.arange(len(self.axis)):
+            array = np.moveaxis(array, source=self.axis, destination=np.arange(len(axis)))
+        elif self.add_empty_axis:
             array = array.reshape((1,) + array.shape)
 
         # if 'int' not in str(array.dtype):
         #     log.warn('Array passed to apply_lut was converted to int32. Numeric precision may have been lost.')
 
         # Read array shape
-        a_source_shape = array.shape[:n_axis]
-        map_shape = array.shape[n_axis:]
+        a_source_shape = array.shape[:self.n_axis]
+        map_shape = array.shape[self.n_axis:]
         map_size = int(np.prod(map_shape))
 
         # Check source shape
-        if a_source_shape != source_shape:
+        if a_source_shape != self.source_shape:
             raise ValueError('Invalid dimensions on axis: %s. (expected: %s, received: %s)'
-                             % (str(axis), str(source_shape), str(a_source_shape)))
+                             % (str(self.axis), str(self.source_shape), str(a_source_shape)))
 
         # Prepare table
-        array = np.moveaxis(array.reshape(source_shape + (map_size,)), -1, 0).reshape((map_size, source_size))
+        array = np.moveaxis(array.reshape(self.source_shape + (map_size,)), -1, 0).reshape((map_size, self.source_size))
 
-        if isinstance(sampling, str):
+        if isinstance(self.sampling, str):
             id_mapped = None
         else:
-            if sampling != 1:
-                array = (array / sampling).astype(np.int32)
-            id_mapped = np.logical_not(np.any(np.logical_or(np.logical_or(array > maxs, array < mins), np.isnan(array)), axis=1))
-            array = np.sum((array - mins) * stride, axis=1).astype(np.uint32)
+            if self.sampling != 1:
+                array = (array / self.sampling).astype(np.int32)
+            id_mapped = np.logical_not(
+                np.any(np.logical_or(np.logical_or(array > self.maxs, array < self.mins), np.isnan(array)), axis=1))
+            array = np.sum((array - self.mins) * self.stride, axis=1).astype(np.uint32)
 
         # Map values
-        if isinstance(lut_sources, str):    # and lut_sources == 'nearest':
-            a = np.sum((array[np.newaxis, :, :] - sources[:, np.newaxis, :]) * 2, axis=-1)
+        if isinstance(self.lut_sources, str):  # and lut_sources == 'nearest':
+            a = np.sum((array[np.newaxis, :, :] - self.sources[:, np.newaxis, :]) * 2, axis=-1)
             a = np.argmin(a, axis=0) + 1
         elif id_mapped is not None:
             a = np.zeros(shape=(map_size,), dtype=np.uint32)
-            if lut_sources is not None:
-                a[id_mapped] = lut_sources[array[id_mapped]]
+            if self.lut_sources is not None:
+                a[id_mapped] = self.lut_sources[array[id_mapped]]
             else:
                 a[id_mapped] = array[id_mapped] + 1
         else:
-            if lut_sources is not None:
-                a = lut_sources[array]
+            if self.lut_sources is not None:
+                a = self.lut_sources[array]
             else:
                 a = array + 1
-        array = lut_dests[a]
+        array = self.lut_dests[a]
 
         del a
         del id_mapped
 
         # Reshape
-        array = array.reshape(map_shape + dest_shape)
+        array = array.reshape(map_shape + self.dest_shape)
 
         array = np.moveaxis(array, np.arange(len(map_shape), array.ndim),
-                            np.arange(dest_axis, dest_axis + len(dest_shape)) if len(dest_shape) != len(axis) else axis)
-        if not keep_dims and dest_shape == (1,):
+                            np.arange(self.dest_axis, self.dest_axis + len(self.dest_shape)) if len(self.dest_shape) != len(
+                                self.axis) else self.axis)
+        if not self.keep_dims and self.dest_shape == (1,):
             array = array.reshape(map_shape)
 
         return array
-
-    f_lut.sources = sources
-    f_lut.lut_sources = lut_sources
-    if isinstance(lut_sources, np.ndarray):
-        f_lut.mins = mins
-        f_lut.maxs = maxs
-        f_lut.stride = stride
-    f_lut.lut_dests = lut_dests
-    f_lut.sampling = sampling
-    f_lut.source_dtype = source_dtype
-    f_lut.keep_dims = keep_dims
-    return f_lut
 
 
 def apply_lut(array, lut_map, axis=None, sampling=None, default=None):
