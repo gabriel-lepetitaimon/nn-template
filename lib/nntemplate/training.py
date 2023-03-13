@@ -82,13 +82,15 @@ class TrainingCfg(Cfg.Obj):
                     enable_progress_bar=hardware.debug,
                     fast_dev_run=10 if hardware.debug == 'fast' else None)
 
-    def create_trainer(self, callbacks=(), **trainer_kwargs) -> pl.Trainer:
+    def create_trainer(self, callbacks=None, **trainer_kwargs) -> pl.Trainer:
         hardware: HardwareCfg = self.root()['hardware']
         experiment: ExperimentCfg = self.root()['experiment']
         datasets: DatasetsCfg = self.root()['datasets']
 
+        callbacks = callbacks or []
+
         for name, checkpoint in self.checkpoints.items():
-            callbacks = callbacks + (checkpoint.create(),)
+            callbacks += [checkpoint.create()]
 
         max_epoch = 2 if hardware.debug else self.max_epoch
         check_val_every_n_epoch = 1 if hardware.debug else self.validate_every_n_epoch
