@@ -1,4 +1,5 @@
 import os
+import os.path as P
 
 import numpy as np
 import pandas as pd
@@ -26,6 +27,20 @@ class DataLoader(Cfg.Obj):
             return source
         return None
 
+    @property
+    def dir_prefix(self):
+        dir = ''
+        for r in self.roots():
+            if r.get('dir-prefix', None) is not None:
+                prefix = r['dir-prefix']
+                if not dir:
+                    prefix = P.abspath(prefix)
+                if not P.exists(dir+prefix) and P.exists(P.join(dir, prefix)):
+                    dir = P.join(dir, r['dir-prefix'])
+                else:
+                    dir += r['dir-prefix']
+        return dir if dir else './'
+
     def source_name(self):
         source = self.source
         return source.name if source is not None else ""
@@ -46,10 +61,9 @@ class FilesPathLoader(DataLoader):
 
     @property
     def dir(self):
-        dir = './'
-        if self.source:
-            dir = self.source.get('dir-prefix', dir)
-        dir += self.directory
+        if not P.exists(self.dir_prefix + self.directory) and P.exists(P.join(self.dir_prefix, self.directory)):
+            return P.join(self.dir_prefix, self.directory)
+        dir = self.dir_prefix + self.directory
         if not os.path.exists(dir):
             raise Cfg.InvalidAttr(f'The source directory for "{self.fullname}" is invalid',
                                   f'Path "{dir}" does not exist.', mark=self.source.mark)

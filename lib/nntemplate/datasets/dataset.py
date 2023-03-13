@@ -25,7 +25,7 @@ class AugmentCfg(Cfg.Obj):
 
 
 class DataSource(Cfg.Obj):
-    dir_prefix = Cfg.str('./')
+    dir_prefix = Cfg.str(None)
     data = DataCollectionsAttr()
 
     def _init_after_populate(self):
@@ -177,6 +177,7 @@ class DatasetFields(Cfg.Obj):
 class DatasetsCfg(Cfg.Obj):
     minibatch = Cfg.int()
     fields: DatasetFields = Cfg.obj()
+    dir_prefix = Cfg.str(None)
     sources = Cfg.collection(DataSource)
 
     train: DatasetCfg = Cfg.obj(shortcut='source')

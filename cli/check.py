@@ -1,26 +1,8 @@
 import argparse
 
-from nn_template import Cfg
-from nn_template.misc.function_tools import LogTimer
-from nn_template.datasets import DatasetsCfg
-
-from run_train import *
-
-
-def main():
-    parser = argparse.ArgumentParser(prog='CheckCfg',
-                                     description='Parse a single configuration file and perform quick checks '
-                                                 'on datasets and on the model.')
-
-    parser.add_argument('configuration_file')
-    parser.add_argument('-g', '--gpus')
-    args = parser.parse_args()
-
-    override_cfg = {}
-    if args.gpus:
-        override_cfg['hardware.gpus'] = args.gpus
-    override_cfg['hardware.debug'] = True
-    check(args.configuration_file, override_cfg)
+from nntemplate import Cfg
+from nntemplate.misc.function_tools import LogTimer
+from nntemplate.datasets import DatasetsCfg
 
 
 def check(cfg_filepath: str, override_cfg=None):
@@ -69,7 +51,3 @@ def check(cfg_filepath: str, override_cfg=None):
         with LogTimer('Check Model', log=True):
             model = model_cfg.create(sample['x'].shape[0])
         del model
-
-
-if __name__ == '__main__':
-    main()
