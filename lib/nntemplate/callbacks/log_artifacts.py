@@ -82,18 +82,19 @@ def make_grid(imgs: list[np.ndarray], nrow=1, padding=5, resize: str | int | tup
 
     h_pad, w_pad = h + padding, w + padding
 
-    grid = np.ones_like(imgs[0], shape=(h_pad * nrow + padding, w_pad * ncol + padding, c))
+    grid = np.ones(shape=(h_pad * nrow + padding, w_pad * ncol + padding, c), dtype=np.float32)
     for i, img in enumerate(imgs):
         row = i // ncol
         col = i % ncol
         y0, x0 = h_pad * row + padding, w_pad * col + padding
         h0, w0 = img.shape[:2]
         if h0 != h or w0 != w:
-            img = img.transpose((1, 2, 0))
+            img = img.transpose((1, 2, 0)).astype(np.float32)
             factor = min(h / h0, w / w0)
             h0 = int(h0 * factor)
             w0 = int(w0 * factor)
-            img = cv2.resize(img, (w0, h0)).transpose((2, 0, 1))
+            print(h0, w0)
+            img = cv2.resize(img, dsize=(w0, h0)).transpose((2, 0, 1))
         y0 += (h - h0) // 2
         x0 += (w - w0) // 2
         grid[y0:y0 + h0, x0:x0 + w0] = img
