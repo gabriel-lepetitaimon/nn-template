@@ -87,50 +87,69 @@ class WandBLogContext:
 
         # Log custom job artifacts if launch was not forced to True.
         if not settings['launch']:
-            #   --- Job Artifact ---
-            job_art_name = experiment.name.replace(' ', '_')
-            job_artifact = None
-            try:
-                job_versions = list(self.api.artifact_versions('job', experiment.project + '/' + job_art_name))
-            except wandb.CommError:
-                job_versions = []
-            if job_versions:
-                for v in job_versions:
-                    if v.metadata['exp_hash'] == experiment.experiment_hash:
-                        job_artifact = logger.use_artifact(experiment.project+'/'+v.name)
-                        break
-            if job_artifact is None:
-                job_artifact = wandb.Artifact(job_art_name, type='job')
-                job_artifact.metadata['exp_hash'] = experiment.experiment_hash
-
-                # Log configuration files
-                if cfg.root().mark:
-                    parser: Cfg.Parser = cfg.root().mark.parser
-                    if parser:
-                        job_artifact.add_file(parser.files[0].path, 'main.yaml')
-                        for cfg_file in parser.files[1:]:
-                            job_artifact.add_file(cfg_file.path)
-
-                logger._experiment.use_artifact(job_artifact)
-
+            hps = Cfg.Dict()
             #   --- Run Artifact ---
-            if experiment.run_id is not None:
+            if experiment.run_id is not None or experiment.trial_id is not None:
                 run_art_name = experiment.run_name.replace(' ', '_')
                 run_artifact = wandb.Artifact(run_art_name, type='hyper-parameters')
 
                 # Log hyperparameters value
                 optuna_cfg: OptunaCfg = cfg.root().get('optuna', None)
                 if isinstance(optuna_cfg, OptunaCfg):
-                    with tempfile.NamedTemporaryFile('w+') as fp:
-                        hps = optuna_cfg.hyper_parameters().copy()
-                        for version in versions:
-                            hps.update(version)
-                        hps.to_yaml(fp)
-                        run_artifact.add_file(fp.name, 'hyper-parameters.yaml')
-                    with tempfile.NamedTemporaryFile('w+') as fp:
-                        cfg.root().to_yaml(fp)
-                        run_artifact.add_file(fp.name, 'run_config.yaml')
+                    hps = optuna_cfg.hyper_parameters().copy()
+                for version in versions:
+                    hps.update(version)
+                with tempfile.NamedTemporaryFile('w+') as fp:
+                    hps.to_yaml(fp)
+                    run_artifact.add_file(fp.name, 'hyper-parameters.yaml')
+
+                # Log the whole configuration
+                with tempfile.NamedTemporaryFile('w+') as fp:
+                    cfg.root().to_yaml(fp)
+                    run_artifact.add_file(fp.name, 'run_config.yaml')
+
+                # Use artifact
                 logger._experiment.use_artifact(run_artifact)
+
+            #   --- Job Artifact ---
+            job_art_name = experiment.name.replace(' ', '_')
+            job_artifact = None
+
+            # If a job was already submitted using the given experiment name,
+            # try to recover a version with the same experiment hash.
+            try:
+                job_versions = list(self.api.artifact_versions('job', experiment.project + '/' + job_art_name))
+            except wandb.CommError:
+                job_versions = []
+            if job_versions:
+                for v in job_versions:
+                    if v.metadata.get('exp_hash', None) == experiment.experiment_hash:
+                        # If a version with the same experiment hash is found, use it.
+                        job_artifact = logger.use_artifact(experiment.project+'/'+v.name)
+                        break
+
+            if job_artifact is None:
+                # Otherwise create a new job artifact.
+                job_artifact = wandb.Artifact(job_art_name, type='job')
+                job_artifact.metadata['exp_hash'] = experiment.experiment_hash
+
+                if cfg.root().mark:
+                    # Saves configuration files
+                    parser: Cfg.Parser = cfg.root().mark.parser
+                    if parser:
+                        job_artifact.add_file(parser.files[0].path, 'main.yaml')
+                        for cfg_file in parser.files[1:]:
+                            job_artifact.add_file(cfg_file.path)
+                else:
+                    # If configuration files are not available, saves the configuration without hyperparameters.
+                    cfg_without_hps = cfg.root().copy()
+                    for c in hps.walk_cursor(only_leaf=True):
+                        cfg_without_hps.delete(c.fullname, remove_empty_roots=True)
+                    with tempfile.NamedTemporaryFile('w+') as fp:
+                        cfg_without_hps.to_yaml(fp)
+                        job_artifact.add_file(fp.name, 'main.yaml')
+
+                logger._experiment.use_artifact(job_artifact)
 
         return logger
 

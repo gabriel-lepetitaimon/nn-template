@@ -4,7 +4,7 @@ from . import Cfg
 
 @Cfg.register_obj("hardware")
 class HardwareCfg(Cfg.Obj):
-    debug = Cfg.oneOf(False, True, 'fast', default=False)
+    debug = Cfg.oneOf('fast', False, True, default=False)
     gpus = Cfg.str(None)
     num_workers = Cfg.oneOf('auto', Cfg.int(min=0), default='auto')
 

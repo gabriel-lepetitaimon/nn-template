@@ -101,7 +101,7 @@ class CursorCfgDict:
 
 class CfgDict(dict):
     @classmethod
-    def from_dict(cls, data: Mapping[str, any]|Iterable[any], recursive=False, read_marks=False, **kwargs):
+    def from_dict(cls, data: Mapping[str, any] | Iterable[any], recursive=False, read_marks=False, **kwargs):
         """
         Cast a standard dictionary to a CfgDict.
 
@@ -228,7 +228,7 @@ class CfgDict(dict):
             i += 1
         return roots
 
-    def root(self, max_level=None):
+    def root(self, max_level=None) -> CfgDict:
         roots = self.roots(max_level=max_level)
         return roots[-1] if roots else self
 
