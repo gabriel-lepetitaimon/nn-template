@@ -47,7 +47,11 @@ def run_train(cfg: CfgDict):
         with LogTimer('Setup Models', log=hardware_cfg.debug):
             sample = val_data.dataset[0]
             model = model_cfg.create(sample['x'].shape[0])
+
             callbacks = experiment_cfg.wandb.pl_callbacks()
+
+        print('\t==== MODEL SPECS ===')
+        print(model)
 
         ###################
         # ---  TRAIN  --- #
