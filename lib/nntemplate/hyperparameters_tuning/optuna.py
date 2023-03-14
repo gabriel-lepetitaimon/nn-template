@@ -107,7 +107,7 @@ class OptunaCfg(Cfg.Obj):
     class TrialContext:
         def __init__(self, optuna_cfg, max_retry):
             self.cfg = optuna_cfg
-            self.max_retry = max_retry
+            self.max_retry = max(1, max_retry)
 
         def __enter__(self):
             self.cfg.ask()
@@ -134,7 +134,7 @@ class OptunaCfg(Cfg.Obj):
                 return
 
 
-    def trial_ctx(self, max_retry=5):
+    def trial_ctx(self, max_retry=1):
         return OptunaCfg.TrialContext(self, max_retry=max_retry)
 
     @property
