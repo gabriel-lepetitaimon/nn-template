@@ -217,7 +217,7 @@ class Segmentation2D(LightningTask):
         self.compute_metrics(batch, dataset=dataset_name, log=True, test=test)
         if dataset_name:
             dataset_name += '-'
-        self.log(dataset_name+'loss', loss)
+        self.log(dataset_name+'loss', loss, add_dataloader_idx=False)
 
     def training_step(self, batch, batch_idx):
         loss = self.compute_pred_target_loss(batch)
