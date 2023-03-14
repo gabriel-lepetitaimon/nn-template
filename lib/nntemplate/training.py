@@ -48,7 +48,7 @@ class TrainingCfg(Cfg.Obj):
     def _init_after_populate(self):
         self.check_objective(self.objective)
 
-    @objective.post_checker
+    @objective.checker
     def check_objective(self, value):
         check_metric_name(self, value, 'objective')
         try:
@@ -76,9 +76,7 @@ class TrainingCfg(Cfg.Obj):
 
     def _hardware_args(self):
         hardware: HardwareCfg = self.root()['hardware']
-        experiment: ExperimentCfg = self.root()['experiment']
-        return dict(gpus=hardware.gpus,
-                    accelerator='gpu',
+        return hardware.lightning_args() | dict(
                     enable_progress_bar=hardware.debug,
                     fast_dev_run=10 if hardware.debug == 'fast' else None)
 

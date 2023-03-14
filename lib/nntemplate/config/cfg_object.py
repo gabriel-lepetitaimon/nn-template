@@ -192,14 +192,14 @@ class CfgAttr:
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         return value
 
-    def checker(self, func):
+    def pre_checker(self, func):
         """
         Check value decorator.
         """
         self._checker = func
         return func
 
-    def post_checker(self, func):
+    def checker(self, func):
         """
         Check value decorator.
         """

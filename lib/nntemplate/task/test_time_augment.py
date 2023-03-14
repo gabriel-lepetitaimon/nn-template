@@ -43,7 +43,7 @@ class TestTimeAugmentCfg(Cfg.Obj):
             raise error
         return rot90
 
-    @alias.post_checker
+    @alias.checker
     def check_alias(self, alias):
         import ttach as tta
         if not hasattr(tta.aliases, alias):

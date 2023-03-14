@@ -27,7 +27,7 @@ class Segmentation2DCfg(LightningTaskCfg):
     scheduler: SchedulerCfg = scheduler()
     test_time_augment: TestTimeAugmentCfg = Cfg.obj(default=None, shortcut='alias')
 
-    @LightningTaskCfg.metrics.post_checker
+    @LightningTaskCfg.metrics.checker
     def check_metrics(self, value):
         for metric in value.values():
             metric: MetricCfg
@@ -39,7 +39,7 @@ class Segmentation2DCfg(LightningTaskCfg):
 
         return value
 
-    @classes.post_checker
+    @classes.checker
     def check_classes(self, value):
         n_value = len(value)
         n_classes = self.get('n-classes', 'auto')
@@ -63,7 +63,7 @@ class Segmentation2DCfg(LightningTaskCfg):
                                   f'Either change "classes" to a list of {n_classes} names, or set n-classes: {n_value}')
         return value
 
-    @n_classes.post_checker
+    @n_classes.checker
     def check_n_classes(self, value):
         try:
             n_classes = len(self.classes)

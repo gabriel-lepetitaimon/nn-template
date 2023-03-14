@@ -26,8 +26,8 @@ class SimpleUnetCfg(Cfg.Obj):
     padding_mode = Cfg.oneOf('zeros', 'reflect', 'replicate', 'circular', default='zeros')
     bias = Cfg.bool(None)
 
-    @depth.post_checker
-    @n_features.post_checker
+    @depth.checker
+    @n_features.checker
     def check_specs(self, v):
         if isinstance(v, int):
             # n_features only
@@ -54,7 +54,7 @@ class SimpleUnetCfg(Cfg.Obj):
 
         return extract_decoder(self.n_features), extract_decoder(self.depth)
 
-    @padding.post_checker
+    @padding.checker
     def check_padding(self, p):
         if p == 'same':
             return math.ceil(self.kernel / 2)

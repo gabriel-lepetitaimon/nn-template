@@ -19,7 +19,7 @@ class HardwareCfg(Cfg.Obj):
             return v
         return int(v)
 
-    @num_workers.post_checker
+    @num_workers.checker
     def check_num_workers(self, v):
         cpus = os.cpu_count()
         match v:
@@ -29,16 +29,12 @@ class HardwareCfg(Cfg.Obj):
                 return min(cpus, v)
 
     def lightning_args(self):
-        args = dict(fast_dev_run=self.debug,
-                    enable_progress_bar=self.debug,
-                    accumulate_grad_batches=self.minibatch_splits)
+        args = {}
 
-        if self.gpus is None:
-            args.update(dict(
-                accelerator='gpus',
+        if self.gpus is not None:
+            args |= dict(
+                accelerator='cuda',
                 devices=self.gpus,
-                auto_select_gpus=isinstance(self.gpus, int),
                 benchmark=self.cudnn_benchmark,
-                             ))
+            )
         return args
-

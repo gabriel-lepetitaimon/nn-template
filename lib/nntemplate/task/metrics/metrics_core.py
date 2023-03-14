@@ -60,7 +60,7 @@ class MonitoredMetricCfg(Cfg.Obj):
     metric = Cfg.str()
     mode = Cfg.oneOf('min', 'max', default='max')
 
-    @metric.post_checker
+    @metric.checker
     def check_metric(self, metric):
         if metric.endswith('^'):
             metric = metric[:-1].strip()
