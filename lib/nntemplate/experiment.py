@@ -220,4 +220,6 @@ class ExperimentCfg(Cfg.Obj):
         import hashlib
         cfg = self.root().to_dict(exportable=True)
         cfg['experiment'].pop('run_id', 0)
+        cfg['experiment'].pop('trial_id', 0)
+        cfg.pop('hardware', None)
         return hashlib.md5(dumps(cfg).encode()).hexdigest()
