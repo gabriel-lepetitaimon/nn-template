@@ -133,7 +133,7 @@ class WandBLogContext:
                 job_artifact = wandb.Artifact(job_art_name, type='job')
                 job_artifact.metadata['exp_hash'] = experiment.experiment_hash
 
-                if cfg.root().mark:
+                if cfg.root().mark and cfg.root().mark.parser:
                     # Saves configuration files
                     parser: Cfg.Parser = cfg.root().mark.parser
                     if parser:

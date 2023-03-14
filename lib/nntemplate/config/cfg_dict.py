@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from copy import copy
 from typing import Mapping, Dict, List, TypeVar, Generic, Iterable, Sized
 import os
 import weakref
@@ -160,7 +160,12 @@ class CfgDict(dict):
                    (allow_empty and isinstance(_, str)) for _ in data):
             return data
 
-        dict_data = {m: deepcopy(marks[m]) for m in marks_set if m in marks}
+        dict_data = {}
+        if read_marks:
+            if '__mark__' in marks:
+                dict_data['__mark__'] = marks['__mark__']
+            if '__child_marks__' in marks:
+                dict_data['__child_marks__'] = copy(marks['__child_marks__'])
         child_marks = dict_data.get('__child_marks__', None)
         for i, d in enumerate(data):
             if isinstance(d, dict):
@@ -568,8 +573,13 @@ class CfgDict(dict):
 
     def copy(self):
         from copy import deepcopy
-        other = deepcopy(self)
-        other._parent = weakref.ref(self.parent) if self._parent else None
+        data_copy = {}
+        for k, v in self.items():
+            if isinstance(v, CfgDict):
+                data_copy[k] = v.copy()
+            else:
+                data_copy[k] = deepcopy(v)
+        other = CfgDict(data_copy, mark=self.mark, child_mark=self.child_mark, parent=self.parent)
         return other
 
     def subset(self, items):
@@ -767,23 +777,17 @@ class CfgVersion:
 
 
 class Mark:
-    def __init__(self, field_id: str, line: int, col: int, file, parser=None, version=None):
+    def __getstate__(self):
+        return self.field_id, self.line, self.col, self.file, self.version, self.parser
+
+    def __init__(self, field_id: str, line: int, col: int, file, version=None):
         from .cfg_parser import CfgFile
 
         self.field_id = field_id
         self.line = line
         self.col = col
-        self.file = file if isinstance(file, CfgFile) else CfgFile(file, parser)
+        self.file = file if isinstance(file, CfgFile) else CfgFile(file)
         self.version = version
-        self._parser = weakref.ref(parser) if parser else None
-
-    def __getstate__(self):
-        return self.field_id, self.line, self.col, self.file, self.version
-
-    def __setstate__(self, state):
-        self.field_id, self.line, self.col, self.file, self.version = state
-        if not hasattr(self, '_parser'):
-            self._parser = None
 
     def update(self, other_mark):
         self.field_id = other_mark.field_id
@@ -791,7 +795,6 @@ class Mark:
         self.col = other_mark.col
         self.file = other_mark.file
         self.version = other_mark.version
-        self._parser = other_mark._parser
 
     def __str__(self):
         return f'in "{self.filename}", line {self.line}, column {self.col}'
@@ -813,7 +816,7 @@ class Mark:
 
     @property
     def parser(self):
-        return self._parser() if self._parser else None
+        return self.file.parser
 
     def exception_like_description(self):
         exp_str = f'File "{self.fullpath}", line {self.line}'
