@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import cv2
 import torch
 from pytorch_lightning.callbacks import Callback
 import wandb
@@ -19,7 +20,7 @@ class Export2DLabel(Callback):
         self._last_epoch = -100
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=None):
-        if self.every_n_epoch and pl_module.current_epoch-self._last_epoch >= self.every_n_epoch:
+        if self.every_n_epoch and pl_module.current_epoch - self._last_epoch >= self.every_n_epoch:
             self._last_epoch = pl_module.current_epoch
 
             try:
@@ -58,23 +59,42 @@ class Export2DLabel(Callback):
             return
 
         imgs = self.format_batch(batch)
-        img = make_grid([img for img in imgs], nrow=2)
-        wandb.log({dataloader_name: wandb.Image(img,)})
+        img = make_grid([img for img in imgs], nrow=2, resize=(512, 512))
+        wandb.log({dataloader_name: wandb.Image(img, )})
 
 
-def make_grid(imgs: list[np.ndarray], nrow=1, padding=5, resize='max') -> np.ndarray:
-    h, w = max(img.shape[0] for img in imgs), max(img.shape[1] for img in imgs)
+def make_grid(imgs: list[np.ndarray], nrow=1, padding=5, resize: str | int | tuple[int, int] = 'max') -> np.ndarray:
+    hs = [img.shape[0] for img in imgs]
+    ws = [img.shape[1] for img in imgs]
+    h, w = max(hs), max(ws)
+    match resize:
+        case 'min':
+            h, w = min(hs), min(ws)
+        case tuple():
+            h = min(resize[0], h)
+            w = min(resize[1], w)
+        case int():
+            h = min(resize, h)
+            w = min(resize, w)
     c = imgs[0].shape[2]
     nrow = min(nrow, len(imgs))
-    ncol = math.ceil(len(imgs)/nrow)
+    ncol = math.ceil(len(imgs) / nrow)
 
-    h_pad, w_pad = h+padding, w+padding
+    h_pad, w_pad = h + padding, w + padding
 
-    grid = np.ones_like(imgs[0], shape=(h_pad*nrow+padding, w_pad*ncol+padding, c))
+    grid = np.ones_like(imgs[0], shape=(h_pad * nrow + padding, w_pad * ncol + padding, c))
     for i, img in enumerate(imgs):
         row = i // ncol
         col = i % ncol
-        y0, x0 = h_pad*row+padding, w_pad*col + padding
+        y0, x0 = h_pad * row + padding, w_pad * col + padding
         h0, w0 = img.shape[:2]
-        grid[y0:y0+h0, x0:x0+w0] = img
+        if h0 != h or w0 != w:
+            img = img.transpose((1, 2, 0))
+            factor = min(h / h0, w / w0)
+            h0 = int(h0 * factor)
+            w0 = int(w0 * factor)
+            img = cv2.resize(img, (w0, h0)).transpose((2, 0, 1))
+        y0 += (h - h0) // 2
+        x0 += (w - w0) // 2
+        grid[y0:y0 + h0, x0:x0 + w0] = img
     return grid

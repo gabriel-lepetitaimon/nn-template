@@ -103,7 +103,7 @@ class TrainingCfg(Cfg.Obj):
         if hardware.precision:
             kwargs['precision'] = hardware.precision
 
-        trainer = pl.Trainer(** self._hardware_args() | kwargs | trainer_kwargs)
+        trainer = pl.Trainer(**(self._hardware_args() | kwargs | trainer_kwargs))
         return trainer
 
     def create_tester(self, callbacks=(), logger=None, **tester_kwargs) -> pl.Trainer:
