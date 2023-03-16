@@ -274,6 +274,8 @@ class OptunaCfg(Cfg.Obj):
             self.root()['experiment.trial_id'] = self.valid_trials_count()
             self.engine.suggest(trial, self.root())
 
+            print(f"Optimizing trial: {self.valid_trials_count()} / {self.n_runs}  (best trial: {self.study.best_trial.number}, best value: {self.study.best_value})")
+
             try:
                 opti_value = func(*args, **kwargs)
             except optuna.TrialPruned as e:
