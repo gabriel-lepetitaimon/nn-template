@@ -11,6 +11,7 @@ class GenericClassificationMetric(MetricCfg):
     task = Cfg.oneOf('binary', 'multiclass', None, default=None)
     ignore_index = Cfg.int(None)
     validate_args = Cfg.bool(True)
+    compute_on_cpu = Cfg.bool(False)
 
     def prepare_data(self, pred, target, mask=None):
         if mask is not None:
@@ -33,8 +34,8 @@ class GenericClassificationMetric(MetricCfg):
             task = 'binary' if n_classes == 'binary' or n_classes <= 2 else 'multiclass'
         generic_args = {'task': task,
                         'ignore_index': self.ignore_index,
-                        'validate_args': self.validate_args}
-        # print('create', metric, args, self.common_kwargs(), generic_args)
+                        'validate_args': self.validate_args,
+                        'compute_on_cpu': self.compute_on_cpu}
         return metric(num_classes=num_classes, **args, **self.common_kwargs(), **generic_args)
 
     def _create(self):
@@ -76,9 +77,13 @@ class Accuracy(MultilabelClassificationMetric):
 class AUROC(MultilabelClassificationMetric):
     average = Cfg.oneOf('macro', 'weighted', 'none', None, default='macro')
     max_fpr = Cfg.float(None, min=0)
+    thresholds = Cfg.oneOf(Cfg.int(min=10), Cfg.list(float), default=100, nullable=True)
 
     def _create(self):
-        return tm.AUROC, {'max_fpr': self.max_fpr, 'compute_on_cpu': True}
+        opts = {'max_fpr': self.max_fpr}
+        if self.thresholds:
+            opts['thresholds'] = self.thresholds
+        return tm.AUROC, {'max_fpr': self.max_fpr}
 
 
 @register_metric('kappa', 'classification')
