@@ -80,15 +80,15 @@ class SimpleUnet(nn.Module):
             n_in = n_out
         self.encoder = nn.Sequential(encoder)
 
-        decoder = OrderedDict()
+        self.decoder = []
         self.upsamplings = []
         for n, (n_out, depth) in enumerate(zip(*self.cfg.decoder_out_features_depth)):
             self.upsamplings += [self.cfg.upsampling.create(n_in)]
             self.add_module(f'Decoder-{n}-upsample', self.upsamplings[-1])
 
-            decoder[f'Decoder-{n}'] = self.create_stage(n_in+n_out, n_out, depth)
+            self.decoder += [self.create_stage(n_in+n_out, n_out, depth)]
+            self.add_module(f'Decoder-{n}', self.decoder[-1])
             n_in = n_out
-        self.decoder = nn.Sequential(decoder)
 
         final = OrderedDict()
         if self.cfg.norm:

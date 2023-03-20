@@ -190,7 +190,7 @@ class DatasetsCfg(Cfg.Obj):
 
     @property
     def n_in_channels(self):
-        return self.train.dataset()[0].shape[0]
+        return self.train.dataset()[0]['x'].shape[0]
 
     def create_train_val_dataloaders(self):
         batch_size = self.minibatch_size
