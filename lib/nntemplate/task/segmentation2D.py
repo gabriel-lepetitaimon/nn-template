@@ -8,10 +8,10 @@ from pytorch_lightning.utilities.types import LRSchedulerTypeUnion
 from torch import nn
 
 
-from ..misc.function_tools import match_params
+from ..torch_utils.function_tools import match_params
 from .task import Cfg, LightningTask, LightningTaskCfg, LossCfg, loss_attr, OptimizerCfg, SchedulerCfg, scheduler
 from .test_time_augment import TestTimeAugmentCfg
-from ..misc.clip_pad import clip_pad_center, select_pixels_by_mask
+from ..torch_utils.clip_pad import clip_pad_center, select_pixels_by_mask
 from ..datasets import DatasetsCfg
 from .metrics import MetricCfg, Metric
 

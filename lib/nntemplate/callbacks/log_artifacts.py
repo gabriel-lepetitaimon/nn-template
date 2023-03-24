@@ -5,8 +5,8 @@ import torch
 from pytorch_lightning.callbacks import Callback
 import wandb
 
-from ..misc.lut import prepare_lut
-from ..misc.clip_pad import clip_pad_center
+from ..torch_utils.lut import prepare_lut
+from ..torch_utils.clip_pad import clip_pad_center
 
 
 class Export2DLabel(Callback):

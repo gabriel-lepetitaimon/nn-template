@@ -1,7 +1,7 @@
 from torch import nn
 
 from .. import Cfg
-from ..misc.clip_pad import cat_crop
+from ..torch_utils.clip_pad import cat_crop
 from .unet import SimpleUnetCfg, SimpleUnet
 from ..task import Segmentation2DCfg
 from ..task.losses import Loss

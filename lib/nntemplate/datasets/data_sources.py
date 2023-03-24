@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import Cfg
-from ..misc.clip_pad import clip_pad_center
+from ..torch_utils.clip_pad import clip_pad_center
 
 
 class DataCollectionsAttr(Cfg.multi_type_collection):

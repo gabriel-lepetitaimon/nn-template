@@ -4,7 +4,7 @@ __all__ = ['Accuracy', 'AUROC', 'CohenKappa', 'ConfusionMatrix', 'Dice',  'F1Sco
 import torchmetrics as tm
 import wandb
 from .metrics_core import MetricCfg, Cfg, register_metric, pl
-from ...misc.clip_pad import select_pixels_by_mask
+from ...torch_utils.clip_pad import select_pixels_by_mask
 
 
 class GenericClassificationMetric(MetricCfg):

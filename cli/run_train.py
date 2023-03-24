@@ -6,7 +6,7 @@ from nntemplate.hyperparameters_tuning.optuna import OptunaCfg
 from nntemplate.hardware import HardwareCfg
 from nntemplate.task.segmentation2D import Segmentation2DCfg
 from nntemplate.model import SMPModelCfg
-from nntemplate.misc.function_tools import LogTimer
+from nntemplate.torch_utils.function_tools import LogTimer
 
 from nntemplate.callbacks.log_artifacts import Export2DLabel
 

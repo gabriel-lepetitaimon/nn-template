@@ -1,7 +1,7 @@
 import torch
 from torchgeometry.losses import one_hot
 from .loss_core import LossCfg, register_loss
-from ...misc.clip_pad import select_pixels_by_mask
+from ...torch_utils.clip_pad import select_pixels_by_mask
 
 @register_loss('dice')
 class DiceLoss(LossCfg):
