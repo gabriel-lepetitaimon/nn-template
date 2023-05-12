@@ -41,7 +41,7 @@ class SMPModelCfg(Cfg.Obj):
                                   "SMP models don't support formal binary segmentation. Use task.n-classes: 2 instead.",
                                   mark=self.root().get_mark('task.n-classes'))
 
-    def create(self, in_channels: int = None, opt: Mapping[str, any] = None):
+    def create(self, in_channels: int | None = None, opt: Mapping[str, any] = None):
         Arch = self.architecture
         arch_opts = list(inspect.signature(Arch).parameters.values())
 

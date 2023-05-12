@@ -1,8 +1,6 @@
 import argparse
 
 from nntemplate import Cfg
-from nntemplate.torch_utils.function_tools import LogTimer
-from nntemplate.datasets import DatasetsCfg
 from run_train import *
 
 
@@ -60,7 +58,7 @@ def check(cfg_filepath: str, override_cfg=None, verbose=False):
         with LogTimer('Building Test Dataloaders', log=verbose):
             test_datas = dataset_cfg.create_test_dataloaders()
 
-        for test_name, test_data in zip(dataset_cfg.test_dataloaders_names, test_datas):
+        for test_name, test_data in zip(dataset_cfg.test_datasets_names, test_datas):
             with LogTimer(f'Generate one batch from: {test_name}', log=verbose):
                 if verbose:
                     print(f'\t{test_name} length:  {len(test_data.dataset)}')

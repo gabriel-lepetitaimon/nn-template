@@ -210,7 +210,7 @@ class DatasetsCfg(Cfg.Obj):
                 for d in self.test.values()]
 
     @property
-    def test_dataloaders_names(self) -> tuple[str]:
+    def test_datasets_names(self) -> tuple[str]:
         return tuple(self.test.keys())
 
     def create_all_dataloaders(self):

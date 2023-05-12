@@ -108,9 +108,7 @@ class TrainingCfg(Cfg.Obj):
 
     def create_tester(self, callbacks=(), logger=None, **tester_kwargs) -> pl.Trainer:
         kwargs = dict(callbacks=callbacks, logger=logger)
-
-        tester = pl.Trainer(**self._hardware_args() | kwargs | tester_kwargs)
-        return tester
+        return pl.Trainer(**self._hardware_args() | kwargs | tester_kwargs)
 
     def log_best_ckpt_metrics(self):
         best_metric = {'best-'+k: v.checkpoint.best_model_score for k, v in self.checkpoints.items()}

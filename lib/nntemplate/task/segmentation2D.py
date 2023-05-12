@@ -1,6 +1,5 @@
 __all__ = ['Segmentation2DCfg', 'Segmentation2D']
 
-from copy import copy
 import traceback
 import torch
 import wandb
@@ -8,10 +7,10 @@ from pytorch_lightning.utilities.types import LRSchedulerTypeUnion
 from torch import nn
 
 
-from ..torch_utils.function_tools import match_params
+from nntemplate.utils.function_tools import match_params
 from .task import Cfg, LightningTask, LightningTaskCfg, LossCfg, loss_attr, OptimizerCfg, SchedulerCfg, scheduler
 from .test_time_augment import TestTimeAugmentCfg
-from ..torch_utils.clip_pad import clip_pad_center, select_pixels_by_mask
+from nntemplate.utils.torch import crop_pad
 from ..datasets import DatasetsCfg
 from .metrics import MetricCfg, Metric
 
@@ -80,7 +79,7 @@ class Segmentation2DCfg(LightningTaskCfg):
         raise Cfg.InvalidAttr(f"Invalid number of classes names for {value}-fold classification",
                               f'Either change "classes" to a list of {value} names, or set n-classes: {n_classes}')
 
-    def create_lightning_task(self, model: nn.Module | None = None) -> LightningTask:
+    def create_task(self, model: nn.Module | None = None) -> LightningTask:
         if model is None:
             model = self.root()['model'].create()
         return Segmentation2D(self, model=model)
@@ -131,7 +130,7 @@ class Segmentation2D(LightningTask):
         else:
             proba = self.model(batch['x'], **{k: v for k, v in batch.items() if k not in ('x', 'y', 'mask')})
 
-        return self.apply_logits(proba)
+        return self.cfg.apply_logits(proba)
 
     def configure_optimizers(self):
         optim = self.cfg.optimizer.create(self.parameters())
@@ -166,7 +165,7 @@ class Segmentation2D(LightningTask):
 
         if binary and proba.ndim == 4:
             proba = proba.squeeze(1)
-        target = clip_pad_center(target, proba.shape)
+        target = crop_pad(target, proba.shape)
 
         if not self.cfg.logits_in_loss:
             proba = self.cfg.apply_logits(proba)
@@ -245,8 +244,3 @@ class Segmentation2D(LightningTask):
         for metric_name, metric in self.metrics.items():
             if metric_name.startswith('test'):
                 metric.reset()
-
-    @property
-    def test_dataloaders_names(self) -> tuple[str]:
-        datasets_cfg: DatasetsCfg = self.cfg.root()['datasets']
-        return tuple(datasets_cfg.test.keys())

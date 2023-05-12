@@ -1,11 +1,10 @@
 import os
 import os.path as P
 
-import numpy as np
 import pandas as pd
 
 from ..config import Cfg
-from ..torch_utils.clip_pad import clip_pad_center
+from nntemplate.utils.torch import crop_pad
 
 
 class DataCollectionsAttr(Cfg.multi_type_collection):
@@ -88,7 +87,7 @@ class ImageLoader(FilesPathLoader):
         if self.clip_pad:
             img = img.transpose((2, 0, 1))
             center = (0.5, 0.5) if self.clip_pad_center == 'center' else self.clip_pad_center
-            img = clip_pad_center(img, center=center, shape=self.clip_pad)
+            img = crop_pad(img, center=center, shape=self.clip_pad)
             img = img.transpose((1, 2, 0))
         if self.resize:
             img = cv2.resize(img, self.resize, self.interp_resize)

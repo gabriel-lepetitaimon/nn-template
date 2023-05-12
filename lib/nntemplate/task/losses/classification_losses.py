@@ -1,6 +1,6 @@
 from .loss_core import LossCfg, register_loss, Cfg
 from torch.nn import BCELoss, BCEWithLogitsLoss, CrossEntropyLoss as CELoss
-from ...torch_utils.clip_pad import select_pixels_by_mask
+from nntemplate.utils.torch import select_pixels_by_mask
 
 
 @register_loss('cross-entropy')

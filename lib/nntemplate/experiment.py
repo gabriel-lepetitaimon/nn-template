@@ -31,6 +31,17 @@ class WandBCfg(Cfg.Obj):
     def pl_callbacks(self) -> list[pl.Callback]:
         return [LogCallback(self)]
 
+    def api(self):
+        return wandb.Api()
+
+    def get_artifact(self, name, alias='latest'):
+        if name.startswith('.'):
+            name = self.parent.name + name
+        return self.api().artifact(self.wandb_path(name+':'+alias))
+
+    def wandb_path(self, path):
+        return '/'.join([_.replace(' ', '_') for _ in [self.entity, self.parent.project, path] if _ is not None])
+
 
 class LogCallback(pl.Callback):
     def __init__(self, cfg: WandBCfg):
@@ -176,6 +187,8 @@ class WandBLogContext:
 
                 if not versions or all(v.metadata[metric] <= ckpg.checkpoint.best_model_score for v in versions):
                     alias += ['best-'+metric]
+                    if metric == training_cfg.objective:
+                        alias += ['best']
 
             self.logger.experiment.log_artifact(model_art, aliases=alias)
 

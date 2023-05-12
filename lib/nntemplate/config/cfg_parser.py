@@ -93,6 +93,30 @@ def parse(cfg_path: str, override: dict | None = None):
     return CfgParser(cfg_path, override=override).parse()
 
 
+def load(cfg_path: str | CfgDict, version=0) -> CfgDict:
+    """
+    Load a configuration file and return a CfgDict object.
+    Equivalent to ```CfgParser(cfg_path).load(version=version)```.
+
+    Examples:
+        >>> cfg = load('exp.yaml')
+        >>> cfg: CfgDict
+        >>> ...
+
+    Args:
+        cfg_path: File path to the configuration file.
+        version: The version of the configuration file to load.
+
+    Returns: The corresponding CfgDict object.
+
+    """
+    if isinstance(cfg_path, CfgDict):
+        return cfg_path
+
+    parser = CfgParser(cfg_path).parse()
+    return parser[version]
+
+
 class CfgParser:
     def __init__(self, cfg_path, override: dict | None = None, verbose_exception=False):
         self.path: str = cfg_path

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Union, Tuple
 
 
-def clip_pad_center(img, shape, center=(0.5, 0.5), pad_mode='constant', pad_value=0, broadcastable=False):
+def crop_pad(img, shape, center=(0.5, 0.5), pad_mode='constant', pad_value=0, broadcastable=False):
     H, W = img.shape[-2:]
     h, w = shape[-2:]
     y, x = (int(round((c % 1)*s)) if isinstance(c, float) and -1 <= c <= 1 else c
@@ -16,11 +16,11 @@ def clip_pad_center(img, shape, center=(0.5, 0.5), pad_mode='constant', pad_valu
         pad_y1 = 0
         pad_y2 = 0
     else:
-        y1, pad_y1 = y-h//2, 0
+        pad_y1, y1 = 0, y-h//2
         if y1 < 0:
             pad_y1, y1 = -y1, 0
         y2 = min(y1+h, H)
-        pad_y2 = h-(y2-y1)-pad_y1
+        pad_y2 = h-(y2-(y1-pad_y1))
 
     if W == 1 and broadcastable:
         x1 = 0
@@ -28,16 +28,16 @@ def clip_pad_center(img, shape, center=(0.5, 0.5), pad_mode='constant', pad_valu
         pad_x1 = 0
         pad_x2 = 0
     else:
-        x1, pad_x1 = x - w // 2, 0
+        pad_x1, x1 = 0, x - w // 2
         if x1 < 0:
             pad_x1, x1 = -x1, 0
-        x2 = min(x1 + w, W)
-        pad_x2 = w-(x2-x1)-pad_x1
+        x2 = min(x1+w, W)
+        pad_x2 = w-(x2-(x1-pad_x1))
 
     img = img[..., y1:y2, x1:x2]
     if pad_x1 or pad_x2 or pad_y1 or pad_y2:
         if isinstance(img, torch.Tensor):
-            img = F.pad(img, (pad_y1, pad_y2, pad_x1, pad_x2), mode=pad_mode, value=pad_value)
+            img = F.pad(img, (pad_x1, pad_x2, pad_y1, pad_y2), mode=pad_mode, value=pad_value)
         elif isinstance(img, np.ndarray):
             img = np.pad(img, ((0, 0),)*(img.ndim-2)+((pad_y1, pad_y2), (pad_x1, pad_x2)),
                          mode=pad_mode, constant_values=pad_value)
@@ -111,7 +111,7 @@ def select_pixels_by_mask(*tensors, mask):
         selected = []
         for t in tensors:
             if clipped_mask is None or t.shape[-2:] != clipped_mask.shape:
-                clipped_mask = clip_pad_center(mask, t.shape)
+                clipped_mask = crop_pad(mask, t.shape)
 
             if clipped_mask.ndim < t.ndim and t.shape[1] != 1:
                 c = t.shape[1]

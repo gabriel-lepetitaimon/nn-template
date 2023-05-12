@@ -1,3 +1,4 @@
+import abc
 from typing import Mapping, Iterable, Dict
 from copy import copy
 from types import UnionType
@@ -26,7 +27,7 @@ class IncompleteObjError(InvalidAttr):
         super(IncompleteObjError, self).__init__(error, info=info, mark=mark)
 
 
-class MetaCfgObj(type):
+class MetaCfgObj(abc.ABCMeta):
     def __new__(mcs, name, bases, clsdict):
         # Create class attribute: __attr__ in CfgObj and inherited classes
         if '__attr__' not in clsdict:
@@ -132,8 +133,9 @@ def _type2attr(typehint, value=UNDEFINED):
 
 
 class CfgAttr:
-    def __init__(self, default=UNDEFINED, nullable=None):
+    def __init__(self, default=UNDEFINED, nullable=None, help=None):
         self.name = ""
+        self.help = help
         self._checker = None
         self._post_checker = None
         if nullable is None:
@@ -219,7 +221,7 @@ class CfgAttr:
             return self.name
 
 
-class CfgObj(CfgDict, metaclass=MetaCfgObj):
+class CfgObj(CfgDict, abc.ABC, metaclass=MetaCfgObj):
     __attr__ = {}
 
     def __init__(self, data=None, parent=None):
@@ -359,10 +361,10 @@ class CfgCollectionType:
 
 
 class IntAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, min=None, max=None, nullable=None):
+    def __init__(self, default=UNDEFINED, min=None, max=None, nullable=None, help=None):
         self.min = min
         self.max = max
-        super(IntAttr, self).__init__(default, nullable=nullable)
+        super(IntAttr, self).__init__(default, nullable=nullable, help=help)
 
     @staticmethod
     def interpret(value, nullable=False) -> int | None:
@@ -392,9 +394,9 @@ class IntAttr(CfgAttr):
 
 
 class ShapeAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, dim=None, nullable=None):
+    def __init__(self, default=UNDEFINED, dim=None, nullable=None, help=None):
         self.dim = dim
-        super(ShapeAttr, self).__init__(default, nullable=nullable)
+        super(ShapeAttr, self).__init__(default, nullable=nullable, help=help)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
@@ -412,10 +414,10 @@ class ShapeAttr(CfgAttr):
 
 
 class FloatAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, min=None, max=None, nullable=None):
+    def __init__(self, default=UNDEFINED, min=None, max=None, nullable=None, help=None):
         self.min = min
         self.max = max
-        super(FloatAttr, self).__init__(default, nullable=nullable)
+        super(FloatAttr, self).__init__(default, nullable=nullable, help=help)
 
     @staticmethod
     def interpret(value, nullable=False) -> float | None:
@@ -451,8 +453,8 @@ class FloatAttr(CfgAttr):
 
 
 class RangeAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED):
-        super(RangeAttr, self).__init__(default)
+    def __init__(self, default=UNDEFINED, nullable=None, help=None):
+        super(RangeAttr, self).__init__(default, nullable=nullable, help=help)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         invalid_value = InvalidAttr(f"{value} is not a valid range for attribute {self.fullname}")
@@ -468,6 +470,7 @@ class RangeAttr(CfgAttr):
 
 
 class StrAttr(CfgAttr):
+
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
             return str(value)
@@ -496,7 +499,7 @@ class BoolAttr(CfgAttr):
 
 
 class OneOfAttr(CfgAttr):
-    def __init__(self, *values, default=UNDEFINED):
+    def __init__(self, *values, default=UNDEFINED, nullable=None, help=None):
         self.values = []
         if values:
             for v in values:
@@ -504,11 +507,11 @@ class OneOfAttr(CfgAttr):
                     self.values += [_type2attr(v)]
                 else:
                     self.values += [v]
-            super(OneOfAttr, self).__init__(default)
+            super(OneOfAttr, self).__init__(default, nullable=nullable, help=help)
         else:
             self.values = None
             self.default = default
-            super(OneOfAttr, self).__init__()
+            super(OneOfAttr, self).__init__(help=help)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         for v in self.values:
@@ -538,9 +541,9 @@ class OneOfAttr(CfgAttr):
 
 
 class StrMapAttr(CfgAttr):
-    def __init__(self, map: Mapping[str, any], default=UNDEFINED):
+    def __init__(self, map: Mapping[str, any], default=UNDEFINED, help=None):
         self.map = map
-        super(StrMapAttr, self).__init__(default)
+        super(StrMapAttr, self).__init__(default, help=help)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         try:
@@ -551,8 +554,8 @@ class StrMapAttr(CfgAttr):
 
 
 class StrListAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, nullable=None):
-        super().__init__(default=default, nullable=nullable)
+    def __init__(self, default=UNDEFINED, nullable=None, help=None):
+        super().__init__(default=default, nullable=nullable, help=help)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, str):
@@ -565,7 +568,7 @@ class StrListAttr(CfgAttr):
 
 class ListAttr(CfgAttr):
     def __init__(self, obj_type, min_size: int = 1, max_size: int = None, size: int = None,
-                 default=UNDEFINED, nullable=None):
+                 default=UNDEFINED, nullable=None, help=None):
         assert isinstance(obj_type, type) or isinstance(obj_type, CfgAttr)
         if size:
             self.min_size = size
@@ -576,7 +579,7 @@ class ListAttr(CfgAttr):
             self.min_size = min_size
             self.max_size = max_size
         self.obj_type = obj_type
-        super().__init__(default=default, nullable=nullable)
+        super().__init__(default=default, nullable=nullable, help=help)
 
     def _check_value(self, value, cfg_dict: CfgDict | None = None):
         if isinstance(value, str):
@@ -607,7 +610,7 @@ class ListAttr(CfgAttr):
 
 
 class ObjAttr(CfgAttr):
-    def __init__(self, default=UNDEFINED, shortcut: str = None, obj_types=None, nullable=None):
+    def __init__(self, default=UNDEFINED, shortcut: str = None, obj_types=None, nullable=None, help=None):
         """
 
         :param default:
@@ -628,7 +631,7 @@ class ObjAttr(CfgAttr):
                 self.shortcut = 'type'
             # if default is UNSPECIFIED:
             #     default = obj_types()
-        super(ObjAttr, self).__init__(default, nullable=nullable)
+        super(ObjAttr, self).__init__(default, nullable=nullable, help=help)
         # else:
         #     super(ObjAttr, self).__init__(nullable=nullable)
         #     self.default = UNDEFINED if default is UNSPECIFIED else default
@@ -682,14 +685,14 @@ class ObjAttr(CfgAttr):
 
 
 class ObjListAttr(CfgAttr):
-    def __init__(self, main_key, default=UNDEFINED, type_key=None, obj_types=None):
+    def __init__(self, main_key, default=UNDEFINED, type_key=None, obj_types=None, help=None):
         self.id_key = main_key
         self.type_key = type_key
         if obj_types is not None:
             self._obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
         else:
             self._obj_types = None
-        super(ObjListAttr, self).__init__(default)
+        super(ObjListAttr, self).__init__(default, help=help)
 
     @property
     def obj_types(self):
@@ -716,9 +719,9 @@ class AnyAttr(CfgAttr):
 
 
 class CollectionAttr(CfgAttr):
-    def __init__(self, obj_types, default=UNDEFINED):
+    def __init__(self, obj_types, default=UNDEFINED, help=None):
         self._obj_types = obj_types if isinstance(obj_types, Iterable) else (obj_types,)
-        super(CollectionAttr, self).__init__(default)
+        super(CollectionAttr, self).__init__(default, help=help)
 
     @property
     def obj_types(self):
@@ -735,9 +738,9 @@ class CollectionAttr(CfgAttr):
 
 
 class MultiTypeCollectionAttr(CollectionAttr):
-    def __init__(self, obj_types: Mapping[str, type], type_key='type', default=UNDEFINED):
+    def __init__(self, obj_types: Mapping[str, type], type_key='type', default=UNDEFINED, help=None):
         self.type_key = type_key
-        super(MultiTypeCollectionAttr, self).__init__(None, default=default)
+        super(MultiTypeCollectionAttr, self).__init__(None, default=default, help=help)
         self._obj_types = obj_types
 
     @property
@@ -755,11 +758,11 @@ class MultiTypeCollectionAttr(CollectionAttr):
 
 
 class RefAttr(CfgAttr):
-    def __init__(self, collection_path, obj_types=None, default=UNDEFINED):
+    def __init__(self, collection_path, obj_types=None, default=UNDEFINED, help=None):
         self.collection_path = collection_path
         self.obj_types = obj_types
 
-        super(RefAttr, self).__init__(default)
+        super(RefAttr, self).__init__(default, help=help)
 
     @property
     def obj_types(self):

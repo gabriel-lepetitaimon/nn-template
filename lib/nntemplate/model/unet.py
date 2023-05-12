@@ -3,7 +3,7 @@ from collections import OrderedDict
 from torch import nn
 
 from ..config import Cfg
-from ..torch_utils.clip_pad import cat_crop
+from nntemplate.utils.torch import cat_crop
 from .activation import activation_attr
 from .common import NormCfg, UpSamplingCfg, DownSamplingCfg
 

@@ -1,3 +1,5 @@
+from torchinfo import summary
+
 from nntemplate import CfgDict
 from nntemplate.experiment import ExperimentCfg
 from nntemplate.datasets import DatasetsCfg
@@ -6,19 +8,19 @@ from nntemplate.hyperparameters_tuning.optuna import OptunaCfg
 from nntemplate.hardware import HardwareCfg
 from nntemplate.task.segmentation2D import Segmentation2DCfg
 from nntemplate.model import SMPModelCfg
-from nntemplate.torch_utils.function_tools import LogTimer
-
-from nntemplate.callbacks.log_artifacts import Export2DLabel
+from nntemplate.utils.function_tools import LogTimer
 
 
-def run_train(cfg: CfgDict):
+def run_train(cfg: CfgDict, train_callbacks=(), test_callbacks=()):
     """
     Perform a single training run with the given configuration.
     Args:
         cfg (CfgDict): Configuration dictionary.
+        train_callbacks (list): List of callbacks to use during training.
+        test_callbacks (list): List of callbacks to use during testing.
 
     Returns:
-
+        The best value of the optimized metric. (cf. `cfg.training.objective`)
     """
     experiment_cfg: ExperimentCfg = cfg['experiment']
     training_cfg: TrainingCfg = cfg['training']
@@ -28,15 +30,11 @@ def run_train(cfg: CfgDict):
     model_cfg: SMPModelCfg = cfg['model']
     hardware_cfg: HardwareCfg = cfg['hardware']
 
-    cmap_av = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
-    cmap_vessel = {(0, 0): '#edf6f9', (1, 1): '#83c5be', (1, 0): '#e29578', (0, 1): '#006d77', 'default': 'lightgray'}
-
     # --- Setup logs ---
     with experiment_cfg.wandb.log_run() as wandb_log:
 
         # --- Setup seed ---
         training_cfg.configure_seed()
-
         # --- Setup dataset ---
         with LogTimer('Create Dataloaders', log=hardware_cfg.debug):
             train_data, val_data = datasets_cfg.create_train_val_dataloaders()
@@ -44,23 +42,25 @@ def run_train(cfg: CfgDict):
         ###################
         # ---  MODEL  --- #
         # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
+        callbacks = list(train_callbacks)
+
         with LogTimer('Setup Models', log=hardware_cfg.debug):
             sample = val_data.dataset[0]
             model = model_cfg.create(sample['x'].shape[0])
 
-            callbacks = experiment_cfg.wandb.pl_callbacks()
+            callbacks += experiment_cfg.wandb.pl_callbacks()
 
         print('\t==== MODEL SPECS ===')
-        print(model)
+        summary(model, sample['x'].shape, device='cuda')
 
         ###################
         # ---  TRAIN  --- #
         # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
         with LogTimer('Setup Trainer', log=hardware_cfg.debug):
             callbacks += optuna_cfg.pl_callbacks()
-            callbacks += [Export2DLabel(cmap_vessel, every_n_epoch=10)]
+            callbacks += []
+            net = task_cfg.create_task(model)
             trainer = training_cfg.create_trainer(callbacks, logger=wandb_log)
-            net = task_cfg.create_lightning_task(model)
 
         trainer.fit(net, train_data, val_data)
 
@@ -71,9 +71,7 @@ def run_train(cfg: CfgDict):
         # --- TEST --- #
         # ‾‾‾‾‾‾‾‾‾‾‾‾ #
         with LogTimer('Setup Tester', log=hardware_cfg.debug):
-            callbacks = [Export2DLabel(cmap_vessel, dataset_names=net.test_dataloaders_names)]
-
-            tester = training_cfg.create_tester(callbacks=callbacks, logger=wandb_log)
+            tester = training_cfg.create_tester(callbacks=test_callbacks, logger=wandb_log)
             test_data = datasets_cfg.create_test_dataloaders()
 
         tester.test(net, test_data, ckpt_path=training_cfg.objective_best_ckpt_path)

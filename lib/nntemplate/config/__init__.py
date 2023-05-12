@@ -36,3 +36,4 @@ class Cfg:
     register_obj = cfg_parser.register_obj
     Parser = cfg_parser.CfgParser
     parse = cfg_parser.parse
+    load = cfg_parser.load

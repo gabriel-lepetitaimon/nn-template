@@ -5,8 +5,8 @@ import torch
 from pytorch_lightning.callbacks import Callback
 import wandb
 
-from ..torch_utils.lut import prepare_lut
-from ..torch_utils.clip_pad import clip_pad_center
+from nntemplate.utils.lut import prepare_lut
+from nntemplate.utils.torch import crop_pad
 
 
 class Export2DLabel(Callback):
@@ -32,7 +32,7 @@ class Export2DLabel(Callback):
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         if self.on_test:
             try:
-                dataloader_name = self.dataset_names[dataloader_idx]
+                dataloader_name = pl_module.test_dataloaders_names[dataloader_idx]
             except:
                 dataloader_name = f'test-{dataloader_idx}' if dataloader_idx is not None else 'test'
             self.export_batch(batch, batch_idx, dataloader_name)
@@ -43,10 +43,10 @@ class Export2DLabel(Callback):
         if y_pred.dtype == torch.float:
             y_pred = y_pred > 0.5
 
-        y = clip_pad_center(y, y_pred.shape)
+        y = crop_pad(y, y_pred.shape)
 
         if 'mask' in batch:
-            mask = clip_pad_center(batch['mask'], y_pred.shape)
+            mask = crop_pad(batch['mask'], y_pred.shape)
             y[mask == 0] = float('nan')
 
         diff = torch.stack((y, y_pred), dim=1)
